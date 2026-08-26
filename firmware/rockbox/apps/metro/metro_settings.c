@@ -35,6 +35,7 @@
 
 #include "metro_settings.h"
 #include "metro_sync.h" /* marcador de sync al cambiar de firmware -- M-090 */
+#include "metro_firmware_families.h" /* tabla de hermanos -- M-093 */
 
 #define METRO_DIR      ROCKBOX_DIR "/aura"
 #define METRO_CFG_PATH METRO_DIR "/aura.cfg"
@@ -239,17 +240,18 @@ void metro_settings_ratings_cfg_path(char *out, size_t outsz)
     strlcpy(out, METRO_DIR "/ratings.cfg", outsz);
 }
 
-/* --- R5 (M-090, contrato v10): cambio de firmware por renombre ------- */
+/* --- R5 (M-090, contrato v10): cambio de firmware por renombre -------
+ * M-093: generalizado a cualquier hermano de metro_firmware_families.h. */
 
 #define METRO_FW_ACTIVE_DIR    ROCKBOX_DIR        /* "/.rockbox" */
-#define METRO_FW_DORMANT_AURA  "/.firmware-aura"
-#define METRO_FW_DORMANT_METRO "/.firmware-metro"
 #define METRO_FW_ROOT_BINARY   "/rockbox.ipod"
 #define METRO_FW_TREE_BINARY   ROCKBOX_DIR "/rockbox.ipod"
 
-bool metro_firmware_aura_installed(void)
+bool metro_firmware_sibling_installed(int i)
 {
-    return dir_exists(METRO_FW_DORMANT_AURA);
+    const struct metro_fw_family *sibling = metro_fw_sibling(i);
+
+    return sibling != NULL && dir_exists(sibling->dormant_dir);
 }
 
 /* /rockbox.ipod := /.rockbox/rockbox.ipod, a trozos, con buffer estatico
@@ -277,11 +279,13 @@ static void refresh_root_binary(void)
     close(in);
 }
 
-bool metro_firmware_switch_to_aura(void)
+bool metro_firmware_switch_to(int i)
 {
-    if (!metro_firmware_aura_installed())
+    const struct metro_fw_family *sibling = metro_fw_sibling(i);
+
+    if (sibling == NULL || !metro_firmware_sibling_installed(i))
         return false;
-    if (dir_exists(METRO_FW_DORMANT_METRO))
+    if (dir_exists(METRO_FW_OWN_DORMANT))
         return false; /* no adivinar: Studio garantiza que no pase */
 
     /* 1. todo lo de Metro al disco, AHORA */
@@ -291,22 +295,22 @@ bool metro_firmware_switch_to_aura(void)
     call_storage_idle_notifys(true);
 
     /* 2. saliente primero */
-    if (rename(METRO_FW_ACTIVE_DIR, METRO_FW_DORMANT_METRO) < 0)
+    if (rename(METRO_FW_ACTIVE_DIR, METRO_FW_OWN_DORMANT) < 0)
         return false;
 
     /* 3. entrante */
-    if (rename(METRO_FW_DORMANT_AURA, METRO_FW_ACTIVE_DIR) < 0)
+    if (rename(sibling->dormant_dir, METRO_FW_ACTIVE_DIR) < 0)
     {
         /* deshacer el paso 2: seguimos siendo Metro */
-        rename(METRO_FW_DORMANT_METRO, METRO_FW_ACTIVE_DIR);
+        rename(METRO_FW_OWN_DORMANT, METRO_FW_ACTIVE_DIR);
         return false;
     }
 
-    /* 4 y 5 -- el marcador SOLO si la biblioteca cambio desde que Aura
-     * construyo su base (M-091, contrato v12): sin sync de por medio el
-     * cambio es instantaneo, sin "optimizando" de 5 minutos. */
+    /* 4 y 5 -- el marcador SOLO si la biblioteca cambio desde que el
+     * hermano construyo su base (M-091, contrato v12): sin sync de por
+     * medio el cambio es instantaneo, sin "optimizando" de 5 minutos. */
     refresh_root_binary();
-    if (metro_sync_switch_needs_rebuild(METRO_FW_DORMANT_METRO))
+    if (metro_sync_switch_needs_rebuild(METRO_FW_OWN_DORMANT))
         metro_sync_write_music_pending_marker();
 
     /* 6: en seco. Nada de lo de arriba queda pendiente de escribir. */

@@ -169,9 +169,16 @@ enum metro_lang_id {
     LANG_LIST_TRUNCATED,
 
     /* R5 (M-090): cambio de firmware */
-    LANG_SETTING_SWITCH_TO_AURA,
     LANG_VALUE_NOT_INSTALLED,
-    LANG_DIALOG_SWITCH_TO_AURA_TITLE,
+
+    /* M-093: submenu "cambiar sistema", una fila por familia hermana
+     * (metro_firmware_families.c). LANG_FAMILY_* son los nombres
+     * visibles; el dialogo lleva %s para el nombre. */
+    LANG_SETTING_SWITCH_SYSTEM,
+    LANG_FAMILY_AURA,
+    LANG_FAMILY_METRO,
+    LANG_FAMILY_MOONLIT,
+    LANG_DIALOG_SWITCH_FMT,
 
     LANG_COUNT
 };

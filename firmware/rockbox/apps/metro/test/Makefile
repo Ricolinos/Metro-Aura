@@ -8,7 +8,7 @@ BUILD := build
 
 .PHONY: test clean
 
-test: $(BUILD)/test_nav $(BUILD)/test_sync_marker $(BUILD)/test_device $(BUILD)/test_motion $(BUILD)/test_lrc $(BUILD)/test_artist_images $(BUILD)/test_fsutil $(BUILD)/test_lang $(BUILD)/test_volume
+test: $(BUILD)/test_nav $(BUILD)/test_sync_marker $(BUILD)/test_device $(BUILD)/test_motion $(BUILD)/test_lrc $(BUILD)/test_artist_images $(BUILD)/test_fsutil $(BUILD)/test_lang $(BUILD)/test_volume $(BUILD)/test_firmware_families
 	@echo "== test_nav =="
 	@$(BUILD)/test_nav
 	@echo "== test_sync_marker =="
@@ -27,6 +27,8 @@ test: $(BUILD)/test_nav $(BUILD)/test_sync_marker $(BUILD)/test_device $(BUILD)/
 	@$(BUILD)/test_lang
 	@echo "== test_volume =="
 	@$(BUILD)/test_volume
+	@echo "== test_firmware_families =="
+	@$(BUILD)/test_firmware_families
 
 $(BUILD)/test_nav: test_nav.c ../metro_nav.c ../metro_nav.h | $(BUILD)
 	$(CC) $(CFLAGS) test_nav.c ../metro_nav.c -o $@
@@ -60,3 +62,6 @@ $(BUILD)/test_lang: test_lang.c ../metro_lang.c ../metro_lang.h | $(BUILD)
 
 $(BUILD)/test_volume: test_volume.c ../metro_volume.c ../metro_volume.h | $(BUILD)
 	$(CC) $(CFLAGS) test_volume.c ../metro_volume.c -o $@
+
+$(BUILD)/test_firmware_families: test_firmware_families.c ../metro_firmware_families.c ../metro_firmware_families.h ../metro_lang.h | $(BUILD)
+	$(CC) $(CFLAGS) test_firmware_families.c ../metro_firmware_families.c -o $@

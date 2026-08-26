@@ -18,6 +18,7 @@
  *
  ****************************************************************************/
 #include <stdio.h>
+#include <string.h>
 #include "kernel.h"
 #include "misc.h"
 #include "lcd.h"
@@ -29,6 +30,63 @@
 #include "metro_input.h"
 #include "metro_lang.h"
 #include "metro_fb.h"
+#include "metro_fonts.h"
+
+#define CONFIRM_QUESTION_X 12
+#define CONFIRM_QUESTION_Y 90
+#define CONFIRM_YES_Y      150
+
+/* M-093: the question used to be one line at MFONT_TITLE, which held
+ * "¿cambiar a Aura y reiniciar?" but not "¿cambiar a moonlit.aura y
+ * reiniciar?". When it does not fit, break it at the last space that
+ * does and draw two lines, centred on the single-line baseline so the
+ * block still ends above "sí"/"no". Never more than two lines: every
+ * question in the catalogue fits in two at 320 px, and a third would
+ * run into the answers. */
+static void draw_question(const char *question)
+{
+    static char head[96];
+    int w, h, max_w = LCD_WIDTH - 2 * CONFIRM_QUESTION_X;
+    const char *tail;
+    size_t cut;
+
+    lcd_setfont(metro_font_id(MFONT_TITLE));
+    lcd_getstringsize((const unsigned char *)question, &w, &h);
+    if (w <= max_w)
+    {
+        metro_draw_text(MFONT_TITLE, CONFIRM_QUESTION_X, CONFIRM_QUESTION_Y,
+                         question, metro_color_fg());
+        return;
+    }
+
+    /* Longest head ending at a space that fits. */
+    cut = 0;
+    for (tail = question; (tail = strchr(tail, ' ')) != NULL; tail++)
+    {
+        size_t n = (size_t)(tail - question);
+        if (n >= sizeof(head))
+            break;
+        memcpy(head, question, n);
+        head[n] = '\0';
+        lcd_getstringsize((const unsigned char *)head, &w, NULL);
+        if (w > max_w)
+            break;
+        cut = n;
+    }
+    if (cut == 0)
+    {
+        /* No usable space: let the LCD clip it, as before. */
+        metro_draw_text(MFONT_TITLE, CONFIRM_QUESTION_X, CONFIRM_QUESTION_Y,
+                         question, metro_color_fg());
+        return;
+    }
+    memcpy(head, question, cut);
+    head[cut] = '\0';
+    metro_draw_text(MFONT_TITLE, CONFIRM_QUESTION_X, CONFIRM_QUESTION_Y - h / 2,
+                     head, metro_color_fg());
+    metro_draw_text(MFONT_TITLE, CONFIRM_QUESTION_X, CONFIRM_QUESTION_Y + h / 2,
+                     question + cut + 1, metro_color_fg());
+}
 
 bool metro_widgets_confirm(const char *title, const char *question)
 {
@@ -40,8 +98,8 @@ bool metro_widgets_confirm(const char *title, const char *question)
 
         metro_draw_clear();
         metro_draw_header(title);
-        metro_draw_text(MFONT_TITLE, 12, 90, question, metro_color_fg());
-        metro_draw_text(sel_yes ? MFONT_LIST_SEL : MFONT_LIST, 12, 150,
+        draw_question(question);
+        metro_draw_text(sel_yes ? MFONT_LIST_SEL : MFONT_LIST, 12, CONFIRM_YES_Y,
                          metro_lang_str(LANG_DIALOG_YES),
                          sel_yes ? metro_color_fg() : metro_color_secondary());
         metro_draw_text(!sel_yes ? MFONT_LIST_SEL : MFONT_LIST, 12, 178,

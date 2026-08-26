@@ -352,3 +352,4 @@ metro/metro_turnstile_table.c
 metro/metro_icons_table.c
 metro/metro_glyphs_table.c
 metro/metro_volume.c
+metro/metro_firmware_families.c

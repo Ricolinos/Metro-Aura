@@ -129,33 +129,40 @@ void metro_settings_artists_dir(char *out, size_t outsz);
  * metro_sync.c cada vez que el import de música termina bien. */
 void metro_settings_ratings_cfg_path(char *out, size_t outsz);
 
-/* R5 (M-090, contrato v10 -- dos firmwares instalados a la vez).
+/* R5 (M-090, contrato v10 -- varios firmwares instalados a la vez;
+ * M-093: tres familias, tabla en metro_firmware_families.h).
  *
  * El arbol activo es siempre /.rockbox (lo unico que el bootloader
- * arranca); el de Aura duerme, completo y con sus ajustes, como
- * /.firmware-aura. Cambiar de firmware son dos renombres mas reiniciar.
- * Las rutas viven aqui porque son del contrato (regla del CLAUDE.md).
+ * arranca); cada familia hermana duerme, completa y con sus ajustes,
+ * como /.firmware-<familia> (Aura: /.firmware-aura, moonlit.aura:
+ * /.firmware-moonlit). Cambiar de firmware son dos renombres mas
+ * reiniciar. Las rutas viven aqui (y en la tabla de familias) porque
+ * son del contrato (regla del CLAUDE.md). `i` es siempre un indice de
+ * metro_fw_sibling(); fuera de rango ambas devuelven false.
  *
- * metro_firmware_aura_installed(): hay un arbol dormido de Aura que
- * despertar -- la fila de Ajustes es inerte si no. */
-bool metro_firmware_aura_installed(void);
+ * metro_firmware_sibling_installed(i): hay un arbol dormido de esa
+ * familia que despertar -- su fila del submenu es inerte si no. */
+bool metro_firmware_sibling_installed(int i);
 
-/* Ejecuta el cambio (contrato v10, en este orden y sin nada en medio):
+/* Ejecuta el cambio al hermano i (contrato v10, en este orden y sin
+ * nada en medio):
  *   1. guarda todo lo de Metro (aura.cfg, config.cfg, cola de tagcache)
  *      y fuerza el vaciado a disco -- despues del renombre /.rockbox es
- *      el arbol de AURA y cualquier escritura tardia caeria alli;
+ *      el arbol del HERMANO y cualquier escritura tardia caeria alli;
  *   2. /.rockbox -> /.firmware-metro (saliente primero: el peor corte
  *      deja un dormido entero; Studio repara al conectar);
- *   3. /.firmware-aura -> /.rockbox;
- *   4. copia /.rockbox/rockbox.ipod (ya el de Aura) sobre /rockbox.ipod,
- *      el respaldo del bootloader, que debe ser siempre el del activo;
- *   5. deja /.aura/sync-pending.json con music=true;
+ *   3. /.firmware-<hermano> -> /.rockbox;
+ *   4. copia /.rockbox/rockbox.ipod (ya el del hermano) sobre
+ *      /rockbox.ipod, el respaldo del bootloader, que debe ser siempre
+ *      el del activo;
+ *   5. deja /.aura/sync-pending.json con music=true SOLO si la
+ *      biblioteca cambio desde el sello del arbol saliente (M-091);
  *   6. reinicia EN SECO (system_reboot) -- nunca por el apagado normal,
- *      que volveria a guardar los ajustes de Metro... en el arbol de Aura.
+ *      que volveria a guardar los ajustes de Metro... en el otro arbol.
  * Solo vuelve si fallo antes de tocar nada, o si el paso 3 fallo y el
  * 2 se pudo deshacer (devuelve false; el firmware sigue siendo Metro).
  * Si ya existe /.firmware-metro (no deberia: Studio garantiza "nunca
  * dos de la misma familia") aborta sin tocar nada en vez de borrarlo. */
-bool metro_firmware_switch_to_aura(void);
+bool metro_firmware_switch_to(int i);
 
 #endif /* METRO_SETTINGS_H */
