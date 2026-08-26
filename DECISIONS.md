@@ -3107,3 +3107,23 @@ Mismo reporte y misma corrección que D-329 en Aura-Firmware (la causa era nuest
 ## M-092 — El wordmark pasa a "metro / aura" (encargo del dueño)
 
 *"Me gustaría que dijera 'metro' y abajo 'aura'."* Dos sitios, mismo par: el **bitmap embebido** (`gen_logo.py` → `rockboxlogo.320x98x16.bmp`: "metro" Selawik Light 56 + "aura" a 26 en gris 60% — al dibujarse como máscara queda atenuado) que usan el arranque y la pantalla USB (M-088), y el **splash de runtime** (`metro_screen_splash.c`: "metro" en display + "aura" en título/secundario, bloque centrado, barra de progreso debajo del bloque). Captura: `docs/screenshots/R5-splash-metro-aura.png`.
+
+## M-093 — "Cambiar sistema": submenú con una fila por familia hermana (tres familias)
+
+**Contexto.** Ahora hay tres familias de firmware bajo el contrato v10: Aura (`/.firmware-aura`), Metro (`/.firmware-metro`, esta) y moonlit.aura (`/.firmware-moonlit`, `firmware_family: moonlit`). M-090 solo sabía "cambiar a Aura": la ruta del dormido y el nombre estaban cableados en `metro_settings.c` y en la fila 8 de Ajustes › General.
+
+**Decisión.** La fila "cambiar a Aura" se sustituye por un submenú **"cambiar sistema"** (`METRO_ROW_NAV`, sin subtítulo) con una fila por familia hermana. La lista de hermanos es una tabla pura, sin I/O, en `apps/metro/metro_firmware_families.c` (`{"/.firmware-aura", LANG_FAMILY_AURA}, {"/.firmware-moonlit", LANG_FAMILY_MOONLIT}`; `METRO_FW_OWN_DORMANT = "/.firmware-metro"` fuera de la tabla: nunca se cambia a uno mismo). Añadir una familia = una línea en la tabla + su `LANG_FAMILY_*` al final del catálogo (M-009).
+
+- `metro_settings.c`: `metro_firmware_aura_installed()`/`metro_firmware_switch_to_aura()` pasan a `metro_firmware_sibling_installed(i)` / `metro_firmware_switch_to(i)` (`metro_settings.c:245-320`). La secuencia de seis pasos de M-090/M-091 es **exactamente la misma**: guardas (hermano no instalado → false; `/.firmware-metro` ya existe → false), vaciado a disco, `/.rockbox` → `/.firmware-metro`, `/.firmware-<hermano>` → `/.rockbox` con rollback, respaldo `/rockbox.ipod`, marcador condicional al sello (`metro_sync_switch_needs_rebuild`), `system_reboot()`. Las invariantes v10 quedan intactas; solo cambia de dónde sale la ruta del entrante.
+- `metro_screen_settings.c`: página local `switch_page` (patrón `options_page` de Now Playing): título de fila = `metro_lang_str(sibling->name)`, subtítulo "no instalado" si no hay dormido (fila inerte), y con dormido confirmación `"¿cambiar a %s y reiniciar?"` (`LANG_DIALOG_SWITCH_FMT`) → `metro_firmware_switch_to(i)`.
+- `metro_widgets_confirm()` envuelve la pregunta en dos líneas cuando no cabe en 320 px (rompe en el último espacio que quepa, centrado sobre la línea base original): "¿cambiar a moonlit.aura y reiniciar?" se cortaba a la derecha en una sola línea de 28 px.
+- Test host `apps/metro/test/test_firmware_families.c`: dos hermanos, ninguno es el propio, todos bajo `/.firmware-`, nombres distintos, fuera de rango → NULL.
+
+Capturas: `docs/screenshots/v0.6.0-cambiar-sistema-vacio.png` (sin dormidos), `…-instalados.png` (ambos dormidos presentes), `…-confirmar.png` (diálogo para moonlit.aura). Secuencia en el simulador: Hub `SCROLL_FWD×3, SELECT` (ajustes) → `SCROLL_FWD×8, SELECT` (fila "cambiar sistema") → `SCROLL_FWD, SELECT` (moonlit.aura). El `system_reboot()` del simulador no termina el proceso, igual que en M-090.
+
+## M-094 — `__TIME__`/`__DATE__` fuera de los plugins SDL (delta espurio de ~2,2 MB en la actualización selectiva)
+
+**Qué pasaba.** La actualización selectiva de Studio (contrato v11, C28) compara CRC32 por archivo entre releases. Entre v0.5.5 y v0.5.6 el delta traía ~2,2 MB que no correspondían a ningún cambio: `quake.rock` y `duke3d.rock` cambian en **cada** build porque incrustan la hora de compilación — `Con_Printf ("Exe: "__TIME__" "__DATE__"\n")` en `quake/host.c` y `quake/host_cmd.c`, y `printf("Compiled %s …", __DATE__)` en `duke3d/Engine/src/display.c`. Es justo lo que el CLAUDE.md prohíbe ("nada de `__DATE__`/`__TIME__` en lo que viaje dentro de `rockbox.zip`"), heredado de upstream.
+
+**Decisión.** Cadena fija `"rockbox build"` en los tres sitios (comentario inline `Metro (M-094)`, registro en `MODIFICATIONS.md`); el `#ifndef __DATE__` de duke3d queda eliminado por muerto. `grep -rn '__TIME__\|__DATE__' apps/plugins/sdl/progs/{quake,duke3d}` solo devuelve los comentarios. Sin efecto visible: eran líneas de consola interna de los juegos.
+
