@@ -626,7 +626,7 @@ bool metro_music_album_art_key(int32_t album_seek, char *out, size_t outsz)
     for (i = 0; i < s_art_key_memo_n; i++)
         if (s_art_key_memo[i].seek == album_seek)
         {
-            snprintf(out, outsz, "a-%08lx-%ld",
+            snprintf(out, outsz, "a-%08lx.%ld",
                      (unsigned long)s_art_key_memo[i].crc, s_art_key_memo[i].mtime);
             return true;
         }
@@ -643,7 +643,7 @@ bool metro_music_album_art_key(int32_t album_seek, char *out, size_t outsz)
     s_art_key_memo[i].crc = crc;
     s_art_key_memo[i].mtime = mtime;
 
-    snprintf(out, outsz, "a-%08lx-%ld", (unsigned long)crc, mtime);
+    snprintf(out, outsz, "a-%08lx.%ld", (unsigned long)crc, mtime);
     return true;
 }
 

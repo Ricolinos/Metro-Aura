@@ -154,7 +154,7 @@ static void ensure_cache_dir(const struct metro_thumb_source *source)
 }
 
 /* Length of the key's "stable name" half: up to the last '.', or --
- * for synthetic keys with no '.' (album "a-<crc>-<mtime>", M-096) --
+ * for synthetic keys with no '.' (album "a-<crc>.<mtime>", M-096) --
  * the last '-'. */
 static size_t key_stem_len(const char *key)
 {
