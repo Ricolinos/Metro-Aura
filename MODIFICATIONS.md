@@ -290,3 +290,12 @@ actualización selectiva de Aura Studio (contrato v11) arrastraba
 
 Ver `DECISIONS.md` M-094.
 
+
+### M-095/M-096 (2026-08-26): sin cambios a archivos de Rockbox
+
+Contrato v15 (`/.aura/tagcache`, `/.aura/thumbs`) se implementa por
+completo dentro de `apps/metro/`: la ruta de la base de datos se fija
+en `global_settings.tagcache_db_path` desde `metro_apply_hygiene()`,
+que `apps/main.c` ya llama (F1, M-019) entre `settings_load()` e
+`init_tagcache()` — la ventana exacta que necesita. No se tocó
+`apps/main.c` ni `apps/tagcache.c`. Ver `DECISIONS.md` M-095.
