@@ -287,6 +287,8 @@ static char s_playlist_files[METRO_MUSIC_MAX_GROUPS][METRO_MUSIC_ITEM_LEN];
 static char s_playlist_names[METRO_MUSIC_MAX_GROUPS][METRO_MUSIC_ITEM_LEN];
 static int s_playlists_n;
 
+static void album_thumbs_gc_if_dirty(void);
+
 static void music_lists_refresh(void)
 {
     int i;
@@ -318,6 +320,8 @@ static void music_lists_refresh(void)
      * above -- a photo added/changed by Studio mid-session shows up
      * next time Music is (re)entered, not stale from boot. */
     metro_music_reload_artist_images();
+
+    album_thumbs_gc_if_dirty(); /* M-096 */
 }
 
 /* pivot: quickplay -> the most-recently-played albums (DA-1: first
@@ -350,14 +354,13 @@ static bool album_thumb_cache_key(void *ctx, int index, char *out, size_t out_le
     if (!g || index < 0 || index >= *g->count)
         return false;
 
-    /* Sólo el seek del álbum, no una ruta de track -- estable mientras
-     * el álbum no cambie, así que un re-decode no se fuerza sólo
-     * porque el ORDEN de la cuadrícula se movió (otro álbum cayendo en
-     * la misma casilla). Y como la clave es el álbum y no la
-     * cuadrícula, Quickplay y Álbumes COMPARTEN la caché en disco: una
-     * carátula ya decodificada por uno la reusa el otro. */
-    snprintf(out, out_len, "album-%ld", (long)g->items[index].seek);
-    return true;
+    /* La clave es el álbum (no la casilla de la cuadrícula), así que
+     * Quickplay y Álbumes COMPARTEN la caché en disco. M-096: ya no es
+     * el seek de tagcache (cambiaba en cada reconstrucción y dejaba
+     * carátulas huérfanas o cruzadas) sino crc32 de la ruta de la
+     * pista representativa + su mtime -- estable entre rebuilds y
+     * entre familias de firmware (contrato v15, /.aura/thumbs). */
+    return metro_music_album_art_key(g->items[index].seek, out, out_len);
 }
 
 static bool album_thumb_decode(void *ctx, int index, fb_data *dst)
@@ -387,6 +390,15 @@ static const fb_data *album_pivot_get_tile(void *ctx, int index)
 
 static const struct album_grid s_quickplay_grid = { s_quickplay, &s_quickplay_n };
 static const struct album_grid s_albums_grid    = { s_albums,    &s_albums_n };
+
+/* M-096: orphan sweep of albums/ -- only when something raised the
+ * dirty flag (sync with music, bootstrap rebuild, cache relocation),
+ * and only here, where s_albums was just re-read. */
+static void album_thumbs_gc_if_dirty(void)
+{
+    if (metro_thumbs_take_dirty())
+        metro_thumbs_gc(&album_thumb_source, (void *)&s_albums_grid, s_albums_n);
+}
 
 static int quickplay_count(void *ctx) { (void)ctx; return s_quickplay_n; }
 

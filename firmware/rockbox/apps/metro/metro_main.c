@@ -87,11 +87,14 @@ void metro_apply_hygiene(void)
 #ifdef USB_ENABLE_HID
     global_settings.usb_hid = false;
 #endif
-    /* Contract v15 (M-095): this is the one point after settings_load()
-     * (which would restore the on-disk "database path") and before
-     * init_tagcache() (which copies it into tc_stat.db_path for good)
-     * -- exactly where the shared database path must land. */
+    /* Contract v15 (M-095/M-096): this is the one point after
+     * settings_load() (which would restore the on-disk "database path")
+     * and before init_tagcache() (which copies it into tc_stat.db_path
+     * for good) -- exactly where the shared database path must land.
+     * The thumbnail cache has no such ordering constraint; it just
+     * rides the same one-shot boot hook. */
     metro_force_shared_db_path();
+    metro_settings_migrate_shared_thumbs();
 }
 
 static void redraw_current(void)

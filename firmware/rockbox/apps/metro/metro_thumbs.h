@@ -43,10 +43,12 @@ struct metro_thumb_source {
 
     /* Writes this item's cache-key stem (no ".mth") into out -- by
      * convention "<stable-name>.<mtime-or-equivalent>", same scheme
-     * R2-F2 used for photos, so a re-synced/changed source item
-     * invalidates cleanly: metro_thumbs_tick() drops any other cached
-     * file that shares the part before the *last* '.' once it writes
-     * a fresh one. Returns false if this index has nothing cacheable
+     * R2-F2 used for photos (albums, M-096: "a-<crc>-<mtime>", '-'
+     * separated because the stem is synthetic and has no '.'), so a
+     * re-synced/changed source item invalidates cleanly:
+     * metro_thumbs_tick() drops any other cached file that shares the
+     * part before the *last* '.' (or, with no '.', the last '-') once
+     * it writes a fresh one. Returns false if this index has nothing cacheable
      * (item vanished, index out of range) -- caller gets NULL/no-op
      * instead of a garbage key. */
     bool (*cache_key)(void *ctx, int index, char *out, size_t out_len);
@@ -97,5 +99,23 @@ void metro_thumbs_reset(void);
  * a time by construction (metro_thumbs_tick()'s one-per-call budget),
  * so sources using this never need their own. */
 bool metro_thumbs_decode_jpeg_cover(const char *path, fb_data *out);
+
+/* M-096 (contract v15): orphan sweep for one source. Deletes every
+ * .mth in that source's cache directory whose stem is not the cache
+ * key of any of `count` items of `ctx` (asks source->cache_key for
+ * each). Album keys are now file-derived, so a tagcache rebuild no
+ * longer invalidates them -- but albums that left the library after a
+ * sync would keep their thumbnails forever without this. Runs the
+ * per-item key resolution in full (tagcache lookups for albums), so
+ * callers gate it on metro_thumbs_take_dirty(): the flag is raised by
+ * metro_sync.c's finish_ok() (music synced), by the bootstrap rebuild
+ * (metro_music.c) and by the one-shot cache relocation
+ * (metro_settings.c), persisted as an empty file
+ * (<thumbs dir>/albums.dirty) so it survives a reboot, and consumed on
+ * the next entry into the album grid. Returns the number of files
+ * removed. */
+int metro_thumbs_gc(const struct metro_thumb_source *source, void *ctx, int count);
+void metro_thumbs_mark_dirty(void);
+bool metro_thumbs_take_dirty(void);
 
 #endif /* METRO_THUMBS_H */

@@ -25,6 +25,8 @@
 #include "jpeg_load.h"
 #include "bmp.h"
 #include "string-extra.h"
+#include "crc32.h"
+#include <stdlib.h> /* qsort() -- metro_thumbs_gc(), M-096 */
 
 #include "metro_thumbs.h"
 #include "metro_settings.h"
@@ -114,9 +116,10 @@ static void cache_dir_for(const struct metro_thumb_source *source, char *out, si
 static void cache_path(const struct metro_thumb_source *source, const char *key,
                         char *out, size_t outsz)
 {
-    char dir[MAX_PATH];
-    cache_dir_for(source, dir, sizeof(dir));
-    snprintf(out, outsz, "%s/%s.mth", dir, key);
+    cache_dir_for(source, out, outsz);
+    strlcat(out, "/", outsz);
+    strlcat(out, key, outsz);
+    strlcat(out, ".mth", outsz);
 }
 
 static void ensure_cache_dir(const struct metro_thumb_source *source)
@@ -130,13 +133,35 @@ static void ensure_cache_dir(const struct metro_thumb_source *source)
     if (slash)
         *slash = '\0';
 
-    /* .../aura already exists (metro_settings_save() creates it on
-     * first boot) -- only "metrocache" (parent) and
-     * "metrocache/<subdir>" (dir) are ever missing here. */
+    /* M-096: /.aura/thumbs/<subdir> -- on a fresh disk none of the
+     * three levels exist yet (/.aura is only created by the first sync
+     * marker or stamp write), so the grandparent is covered too. */
     if (!dir_exists(parent))
+    {
+        char grand[MAX_PATH];
+        strlcpy(grand, parent, sizeof(grand));
+        slash = strrchr(grand, '/');
+        if (slash && slash != grand)
+        {
+            *slash = '\0';
+            if (!dir_exists(grand))
+                mkdir(grand);
+        }
         mkdir(parent);
+    }
     if (!dir_exists(dir))
         mkdir(dir);
+}
+
+/* Length of the key's "stable name" half: up to the last '.', or --
+ * for synthetic keys with no '.' (album "a-<crc>-<mtime>", M-096) --
+ * the last '-'. */
+static size_t key_stem_len(const char *key)
+{
+    const char *sep = strrchr(key, '.');
+    if (!sep)
+        sep = strrchr(key, '-');
+    return sep ? (size_t)(sep - key) : strlen(key);
 }
 
 /* R2-F2/DD-9, generalized R3-F1: drops any other cached .mth that
@@ -154,16 +179,13 @@ static void remove_stale(const struct metro_thumb_source *source, const char *ke
 {
     char dir[MAX_PATH];
     char prefix[KEY_LEN];
-    char *dot;
     size_t prefix_len;
     DIR *d;
     struct DIRENT *entry;
 
     strlcpy(prefix, key, sizeof(prefix));
-    dot = strrchr(prefix, '.');
-    if (dot)
-        *dot = '\0';
-    prefix_len = strlen(prefix);
+    prefix_len = key_stem_len(prefix);
+    prefix[prefix_len] = '\0';
 
     cache_dir_for(source, dir, sizeof(dir));
     d = opendir(dir);
@@ -175,10 +197,12 @@ static void remove_stale(const struct metro_thumb_source *source, const char *ke
         char full[MAX_PATH];
 
         if (strncmp(entry->d_name, prefix, prefix_len) != 0 ||
-            entry->d_name[prefix_len] != '.')
-            continue; /* not "<prefix>.<...>.mth" for THIS key's stem */
+            (entry->d_name[prefix_len] != '.' && entry->d_name[prefix_len] != '-'))
+            continue; /* not "<prefix>.<...>.mth" / "<prefix>-<...>.mth" for THIS stem */
 
-        snprintf(full, sizeof(full), "%s/%s", dir, entry->d_name);
+        strlcpy(full, dir, sizeof(full));
+        strlcat(full, "/", sizeof(full));
+        strlcat(full, entry->d_name, sizeof(full));
         if (strcmp(full, keep_path) != 0)
             remove(full);
     }
@@ -340,4 +364,99 @@ void metro_thumbs_reset(void)
     for (i = 0; i < WINDOW_N; i++)
         s_window[i].valid = false;
     s_pending_n = 0;
+}
+
+/* --- M-096: orphan sweep ------------------------------------------- */
+
+/* The flag lives on disk (an empty file next to the caches) rather
+ * than in RAM: a sync that finishes at boot and a shutdown before the
+ * user ever opens Music would otherwise lose it, and the orphans would
+ * stay forever. Path via metro_settings_metro_cache_dir() -- CLAUDE.md's
+ * compat-path rule. */
+static void dirty_flag_path(char *out, size_t outsz)
+{
+    metro_settings_metro_cache_dir("albums.dirty", out, outsz);
+}
+
+void metro_thumbs_mark_dirty(void)
+{
+    char path[MAX_PATH];
+    int fd;
+
+    dirty_flag_path(path, sizeof(path));
+    ensure_cache_dir(&(const struct metro_thumb_source){ "albums", NULL, NULL });
+    fd = creat(path, 0666);
+    if (fd >= 0)
+        close(fd);
+}
+
+bool metro_thumbs_take_dirty(void)
+{
+    char path[MAX_PATH];
+
+    dirty_flag_path(path, sizeof(path));
+    if (!file_exists(path))
+        return false;
+    remove(path);
+    return true;
+}
+
+/* Keys are remembered as crc32 of the full stem, 4 bytes each, so a
+ * 2,000-album library costs 8KB of static scratch instead of 2,000
+ * KEY_LEN strings. A crc collision only ever KEEPS a file (never
+ * deletes a live one), which is the safe direction. */
+#define GC_MAX_KEYS 2048
+static uint32_t s_gc_keys[GC_MAX_KEYS];
+
+static int cmp_u32(const void *a, const void *b)
+{
+    uint32_t x = *(const uint32_t *)a, y = *(const uint32_t *)b;
+    return x < y ? -1 : x > y;
+}
+
+static bool gc_key_live(uint32_t h, int n)
+{
+    int lo = 0, hi = n - 1;
+    while (lo <= hi)
+    {
+        int mid = (lo + hi) / 2;
+        if (s_gc_keys[mid] == h) return true;
+        if (s_gc_keys[mid] < h) lo = mid + 1; else hi = mid - 1;
+    }
+    return false;
+}
+
+int metro_thumbs_gc(const struct metro_thumb_source *source, void *ctx, int count)
+{
+    char key[KEY_LEN], dir[MAX_PATH], full[MAX_PATH];
+    DIR *d;
+    struct DIRENT *entry;
+    int i, n = 0, removed = 0;
+
+    for (i = 0; i < count && n < GC_MAX_KEYS; i++)
+        if (source->cache_key(ctx, i, key, sizeof(key)))
+            s_gc_keys[n++] = crc_32(key, strlen(key), 0xffffffff);
+    if (count > GC_MAX_KEYS)
+        return 0; /* can't tell live from orphan beyond the cap: keep all */
+    qsort(s_gc_keys, n, sizeof(s_gc_keys[0]), cmp_u32);
+
+    cache_dir_for(source, dir, sizeof(dir));
+    d = opendir(dir);
+    if (!d)
+        return 0;
+    while ((entry = readdir(d)) != NULL)
+    {
+        size_t len = strlen(entry->d_name);
+        if (len <= 4 || strcmp(entry->d_name + len - 4, ".mth") != 0)
+            continue;
+        if (gc_key_live(crc_32(entry->d_name, len - 4, 0xffffffff), n))
+            continue;
+        strlcpy(full, dir, sizeof(full));
+        strlcat(full, "/", sizeof(full));
+        strlcat(full, entry->d_name, sizeof(full));
+        remove(full);
+        removed++;
+    }
+    closedir(d);
+    return removed;
 }

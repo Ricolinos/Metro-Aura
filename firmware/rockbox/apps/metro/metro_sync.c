@@ -31,6 +31,7 @@
 #include "metro_sync.h"
 #include "metro_sync_marker.h"
 #include "metro_settings.h"
+#include "metro_thumbs.h" /* metro_thumbs_mark_dirty() -- M-096 */
 
 /* Contract S4: the marker lives at the disk ROOT, not under
  * /.rockbox/aura -- it's the one thing Studio leaves for the firmware
@@ -313,6 +314,10 @@ static void finish_ok(void)
      * biblioteca vigente -- se anota el sello, y con eso el proximo
      * cambio de firmware de ida y vuelta sin sync no reconstruye. */
     metro_sync_record_db_stamp();
+    /* M-096: albums removed by this sync leave orphan thumbnails under
+     * /.aura/thumbs/albums -- swept on the next entry into Music. */
+    if (s_marker.music)
+        metro_thumbs_mark_dirty();
     remove_marker();
     go_idle();
 }

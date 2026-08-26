@@ -116,6 +116,7 @@ void metro_ensure_media_dirs(void);
  * copy of each serves all of them. metro_settings.h owns these path
  * literals (CLAUDE.md's compat-path rule); nothing else spells them. */
 #define AURA_SHARED_DB_DIR     "/.aura/tagcache"
+#define AURA_SHARED_THUMBS_DIR "/.aura/thumbs"
 
 /* M-095: points global_settings.tagcache_db_path at AURA_SHARED_DB_DIR
  * and migrates a per-tree database (ROCKBOX_DIR/database_*.tcd, the
@@ -128,12 +129,19 @@ void metro_ensure_media_dirs(void);
  * exactly that point (M-019). See DECISIONS.md M-095. */
 void metro_force_shared_db_path(void);
 
-/* R2-F2/DD-9 (M-057), generalized R3-F1/DD-1: .../aura/metrocache/<subdir>/
- * -- Metro's own on-disk thumbnail cache, one subdirectory per source
- * (NOT Aura's photocache/: format and thumbnail size differ, and
- * family-switch cleanup wipes that one anyway). The only function
- * allowed to build this path (CLAUDE.md's compat-path rule) --
- * metro_thumbs.c calls this instead of composing ROCKBOX_DIR itself.
+/* M-096: one-shot rename of the pre-v15 per-tree thumbnail cache
+ * (ROCKBOX_DIR/aura/metrocache/) to AURA_SHARED_THUMBS_DIR when the
+ * shared one doesn't exist yet; if it does, the per-tree copy is
+ * deleted (it's derived data, regenerable on demand). Same call site
+ * as metro_force_shared_db_path(). */
+void metro_settings_migrate_shared_thumbs(void);
+
+/* R2-F2/DD-9 (M-057), generalized R3-F1/DD-1, relocated M-096:
+ * AURA_SHARED_THUMBS_DIR/<subdir>/ -- the on-disk thumbnail cache, one
+ * subdirectory per source (photos/artists/albums), raw 80x80 fb_data
+ * .mth files shared by the three families (contract v15). The only
+ * function allowed to build this path (CLAUDE.md's compat-path rule)
+ * -- metro_thumbs.c calls this instead of composing the path itself.
  * Writes into `out` (does not create the directory -- caller's job,
  * mkdir() if missing, before writing inside it). */
 void metro_settings_metro_cache_dir(const char *subdir, char *out, size_t outsz);

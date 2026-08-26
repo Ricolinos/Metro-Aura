@@ -37,6 +37,7 @@
 #include "misc.h" /* read_line() */
 #include "string-extra.h"
 #include "kernel.h" /* current_tick, for playlist_randomise()'s seed */
+#include "crc32.h"  /* crc_32() -- album art key, M-096 */
 
 #include "metro_music.h"
 #include "metro_lang.h"
@@ -45,6 +46,7 @@
 #include "metro_artist_images.h"
 #include "metro_fsutil.h"
 #include "metro_volume.h"
+#include "metro_thumbs.h" /* metro_thumbs_mark_dirty() -- M-096 */
 
 /* Enough unique values for a few thousand artists/albums/genres --
  * same size Aura-Firmware settled on for the same purpose (D-021).
@@ -55,6 +57,12 @@ static uint32_t s_uniqbuf[2048];
 static bool s_scan_triggered = false;
 static bool s_update_triggered = false;
 static bool s_bootstrap_sealed = false; /* M-095 */
+
+/* M-096: album art key memo (metro_music_album_art_key()) -- cleared
+ * whenever the album list is re-read, since seeks may be renumbered. */
+#define ART_KEY_MEMO_N 64
+static struct { int32_t seek; uint32_t crc; long mtime; } s_art_key_memo[ART_KEY_MEMO_N];
+static int s_art_key_memo_n = 0, s_art_key_memo_ring = 0;
 
 
 bool metro_music_is_playing(void)
@@ -215,7 +223,9 @@ void metro_music_bootstrap_tick(void)
      * (state IDLE -- a pending job never gets here because db_ready()
      * cedes to it, an errored marker keeps forcing its own rebuild
      * regardless of the stamp) the once-per-boot tagcache_start_scan()
-     * is what makes it current, so it describes the library on disk. */
+     * is what makes it current, so it describes the library on disk.
+     * The album thumbnails are keyed by track path (M-096) so none of
+     * them need touching -- only the orphan sweep is flagged. */
     if (s_bootstrap_sealed || metro_sync_job_active())
         return;
     if (!s_scan_triggered && !s_update_triggered)
@@ -227,6 +237,8 @@ void metro_music_bootstrap_tick(void)
     if (s_scan_triggered || !metro_sync_db_stamp_present())
     {
         metro_sync_record_db_stamp();
+        if (s_scan_triggered)
+            metro_thumbs_mark_dirty(); /* a rebuild may have dropped albums */
     }
     s_bootstrap_sealed = true;
 }
@@ -428,6 +440,8 @@ int metro_music_artists(metro_music_item_t *out, int max)
 
 int metro_music_albums(metro_music_item_t *out, int max)
 {
+    s_art_key_memo_n = 0; /* M-096: seeks may have been renumbered */
+    s_art_key_memo_ring = 0;
     int n = run_search(tag_album, -1, 0, out, max);
     int i;
 
@@ -578,6 +592,59 @@ bool metro_music_track_path(int32_t idx_id, char *out, size_t outsz)
     ok = tagcache_retrieve(&tcs, idx_id, tag_filename, out, outsz);
     tagcache_search_finish(&tcs);
     return ok;
+}
+
+/* M-096: path + tagcache's stored mtime of one track, one search. */
+static bool track_path_mtime(int32_t idx_id, char *out, size_t outsz, long *mtime)
+{
+    struct tagcache_search tcs;
+    bool ok;
+
+    if (!tagcache_is_usable())
+        return false;
+    if (!tagcache_search(&tcs, tag_filename))
+        return false;
+
+    ok = tagcache_retrieve(&tcs, idx_id, tag_filename, out, outsz);
+    if (ok)
+    {
+        tcs.idx_id = idx_id; /* tagcache_get_numeric() reads tcs->idx_id */
+        *mtime = tagcache_get_numeric(&tcs, tag_mtime);
+    }
+    tagcache_search_finish(&tcs);
+    return ok;
+}
+
+bool metro_music_album_art_key(int32_t album_seek, char *out, size_t outsz)
+{
+    metro_music_item_t track;
+    char path[MAX_PATH];
+    uint32_t crc;
+    long mtime;
+    int i;
+
+    for (i = 0; i < s_art_key_memo_n; i++)
+        if (s_art_key_memo[i].seek == album_seek)
+        {
+            snprintf(out, outsz, "a-%08lx-%ld",
+                     (unsigned long)s_art_key_memo[i].crc, s_art_key_memo[i].mtime);
+            return true;
+        }
+
+    if (metro_music_songs_of_album(album_seek, &track, 1) < 1)
+        return false;
+    if (!track_path_mtime(track.seek, path, sizeof(path), &mtime))
+        return false;
+    crc = crc_32(path, strlen(path), 0xffffffff);
+
+    i = s_art_key_memo_n < ART_KEY_MEMO_N ? s_art_key_memo_n++ : s_art_key_memo_ring;
+    s_art_key_memo_ring = (s_art_key_memo_ring + 1) % ART_KEY_MEMO_N;
+    s_art_key_memo[i].seek = album_seek;
+    s_art_key_memo[i].crc = crc;
+    s_art_key_memo[i].mtime = mtime;
+
+    snprintf(out, outsz, "a-%08lx-%ld", (unsigned long)crc, mtime);
+    return true;
 }
 
 int metro_music_songs_of_genre(int32_t genre_seek, metro_music_item_t *out, int max)

@@ -36,6 +36,7 @@
 #include "metro_settings.h"
 #include "metro_sync.h" /* marcador de sync al cambiar de firmware -- M-090 */
 #include "metro_firmware_families.h" /* tabla de hermanos -- M-093 */
+#include "metro_thumbs.h" /* metro_thumbs_mark_dirty() -- M-096 */
 
 #define METRO_DIR      ROCKBOX_DIR "/aura"
 #define METRO_CFG_PATH METRO_DIR "/aura.cfg"
@@ -212,9 +213,10 @@ void metro_ensure_media_dirs(void)
     }
 }
 
-/* --- Contract v15 (M-095): shared /.aura/tagcache ------------------- */
+/* --- Contract v15 (M-095/M-096): shared /.aura/tagcache + /.aura/thumbs */
 
 #define METRO_LEGACY_DB_DIR     ROCKBOX_DIR                  /* pre-v15 .tcd location */
+#define METRO_LEGACY_THUMBS_DIR METRO_DIR "/metrocache"      /* pre-v15 .mth location */
 #define TAGCACHE_MASTER_NAME    "database_idx.tcd"           /* apps/tagcache.c TAGCACHE_FILE_MASTER */
 
 /* strlcpy/strlcat instead of snprintf("%s/%s"): gcc's
@@ -300,9 +302,53 @@ void metro_force_shared_db_path(void)
     }
 }
 
+/* rm -rf for the small, known-shape thumbnail tree (a parent with a
+ * few flat subdirectories of .mth files). */
+static void remove_flat_dir(const char *dir)
+{
+    DIR *d = opendir(dir);
+    struct DIRENT *entry;
+    char path[MAX_PATH];
+
+    if (!d)
+        return;
+    while ((entry = readdir(d)) != NULL)
+    {
+        if (!strcmp(entry->d_name, ".") || !strcmp(entry->d_name, ".."))
+            continue;
+        join_path(path, sizeof(path), dir, entry->d_name);
+        if (dir_get_info(d, entry).attribute & ATTR_DIRECTORY)
+            remove_flat_dir(path);
+        else
+            remove(path);
+    }
+    closedir(d);
+    rmdir(dir);
+}
+
+void metro_settings_migrate_shared_thumbs(void)
+{
+    if (!dir_exists(METRO_LEGACY_THUMBS_DIR))
+        return;
+    if (!dir_exists(AURA_SHARED_THUMBS_DIR))
+    {
+        ensure_shared_root();
+        if (rename(METRO_LEGACY_THUMBS_DIR, AURA_SHARED_THUMBS_DIR) == 0)
+        {
+            /* The pre-v15 album-<seek>.mth files came along: orphans
+             * under the new key scheme, swept on first Music entry. */
+            metro_thumbs_mark_dirty();
+            return;
+        }
+    }
+    /* Shared cache already there (another family built it), or the
+     * rename failed: the per-tree copy is derived data, drop it. */
+    remove_flat_dir(METRO_LEGACY_THUMBS_DIR);
+}
+
 void metro_settings_metro_cache_dir(const char *subdir, char *out, size_t outsz)
 {
-    snprintf(out, outsz, "%s/metrocache/%s", METRO_DIR, subdir);
+    snprintf(out, outsz, "%s/%s", AURA_SHARED_THUMBS_DIR, subdir);
 }
 
 /* R3-F3/DD-6 (M-064): Studio's own index + photo cache -- distinct

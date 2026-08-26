@@ -135,6 +135,17 @@ int metro_music_recent_albums(metro_music_item_t *out, int max);
  * trusting anything tagcache already has cached for it. */
 bool metro_music_track_path(int32_t idx_id, char *out, size_t outsz);
 
+/* M-096 (contract v15): stable on-disk cache key for an album's cover
+ * thumbnail -- "a-<crc32 of the representative track's path, 8 hex>-
+ * <that track's mtime as tagcache stores it>". Both halves come from
+ * the FILE, not from the database: a tagcache rebuild renumbers every
+ * seek (the pre-v15 key), but the path and mtime of the album's first
+ * song only change when Studio re-syncs that song -- which is exactly
+ * when the cover may have changed. Memoized (small ring) because the
+ * grid asks for it on every redraw of every visible tile. Returns
+ * false if the album has no resolvable track (or tagcache is down). */
+bool metro_music_album_art_key(int32_t album_seek, char *out, size_t outsz);
+
 int metro_music_albums_of_artist(int32_t artist_seek,
                                   metro_music_item_t *out, int max);
 int metro_music_songs_of_album(int32_t album_seek,
