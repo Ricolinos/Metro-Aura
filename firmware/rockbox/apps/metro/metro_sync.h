@@ -92,20 +92,31 @@ bool metro_sync_request_manual(void);
  * de sync; el marcador se interpreta al siguiente arranque. */
 bool metro_sync_write_music_pending_marker(void);
 
-/* R5 (M-091, contrato v12): sello de biblioteca. /.aura/library-stamp
- * solo cambia cuando un sync de Studio toca la musica; cada arbol anota
- * en .rockbox/aura/db_stamp.txt contra que sello construyo su base.
+/* R5 (M-091, contrato v12; M-095, v15): sello de biblioteca.
+ * /.aura/library-stamp solo cambia cuando un sync de Studio toca la
+ * musica; /.aura/tagcache/db_stamp.txt anota contra que sello se
+ * construyo la base COMPARTIDA (ya no una por arbol).
  *
  * metro_sync_record_db_stamp(): al terminar BIEN una (re)construccion --
- * la base activa ahora describe la biblioteca vigente. Crea el sello
- * compartido si no existe.
+ * la base ahora describe la biblioteca vigente. Crea el sello de
+ * biblioteca si no existe.
  *
- * metro_sync_switch_needs_rebuild(outgoing_tree_root): para el cambio de
- * firmware, DESPUES de los renombres. Crea el sello si falta (y lo anota
- * como del saliente, cuya base esta al dia) y devuelve true si el arbol
- * ACTIVO (el entrante, ya en /.rockbox) tiene sello distinto o no tiene
- * -- es decir, si hay que dejar el marcador. */
+ * metro_sync_db_stamp_present(): hay sello de base en disco.
+ *
+ * metro_sync_migrate_db_stamp(db_was_migrated): una vez, al arrancar
+ * (desde metro_force_shared_db_path()): el sello por arbol pre-v15
+ * (.rockbox/aura/db_stamp.txt) se renombra al compartido SOLO si la
+ * base que describia acaba de migrar con el y no hay sello compartido;
+ * en cualquier otro caso se borra.
+ *
+ * metro_sync_switch_needs_rebuild(): para el cambio de firmware, antes
+ * del reinicio. Sin sello de biblioteca (arranque en frio) sella la
+ * base compartida, que esta al dia, y devuelve false; con el, devuelve
+ * true si la base no tiene sello o tiene uno distinto -- es decir, si
+ * hay que dejar el marcador. No depende de ningun arbol: la base es una. */
 void metro_sync_record_db_stamp(void);
-bool metro_sync_switch_needs_rebuild(const char *outgoing_tree_root);
+bool metro_sync_db_stamp_present(void);
+void metro_sync_migrate_db_stamp(bool db_was_migrated);
+bool metro_sync_switch_needs_rebuild(void);
 
 #endif /* METRO_SYNC_H */

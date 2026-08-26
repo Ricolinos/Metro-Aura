@@ -106,6 +106,28 @@ void metro_settings_apply_pending_clock(void);
  * disk mounted. */
 void metro_ensure_media_dirs(void);
 
+/* --- Contract v15 (M-095/M-096): shared, family-independent state ---
+ * Both live at the disk ROOT under /.aura, next to the sync marker and
+ * the library stamp, NOT inside any firmware tree: a firmware switch
+ * (v10, two renames) must not carry the tagcache database or the
+ * thumbnails along with the tree that built them. The three families
+ * (Aura, Metro, moonlit) share byte-identical apps/tagcache.c (same
+ * TAGCACHE_MAGIC) and the same 80x80 raw .mth thumbnail format, so one
+ * copy of each serves all of them. metro_settings.h owns these path
+ * literals (CLAUDE.md's compat-path rule); nothing else spells them. */
+#define AURA_SHARED_DB_DIR     "/.aura/tagcache"
+
+/* M-095: points global_settings.tagcache_db_path at AURA_SHARED_DB_DIR
+ * and migrates a per-tree database (ROCKBOX_DIR/database_*.tcd, the
+ * pre-v15 location) into it by rename() -- same FAT partition, no
+ * copy, no rebuild. MUST run after settings_load() (which would
+ * otherwise restore whatever "database path" the on-disk config.cfg
+ * carries) and before tagcache_init() (which copies the setting into
+ * tc_stat.db_path once and never re-reads it) -- i.e. from
+ * metro_apply_hygiene(), which apps/main.c's init() already calls at
+ * exactly that point (M-019). See DECISIONS.md M-095. */
+void metro_force_shared_db_path(void);
+
 /* R2-F2/DD-9 (M-057), generalized R3-F1/DD-1: .../aura/metrocache/<subdir>/
  * -- Metro's own on-disk thumbnail cache, one subdirectory per source
  * (NOT Aura's photocache/: format and thumbnail size differ, and

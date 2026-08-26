@@ -49,6 +49,7 @@
 #include "metro_manifest.h"
 #include "metro_transitions.h"
 #include "metro_thumbs.h"
+#include "metro_music.h" /* metro_music_bootstrap_tick() -- M-095 */
 #include "metro_screen_photo_viewer.h"
 #include "metro_screen_lock.h"
 
@@ -86,6 +87,11 @@ void metro_apply_hygiene(void)
 #ifdef USB_ENABLE_HID
     global_settings.usb_hid = false;
 #endif
+    /* Contract v15 (M-095): this is the one point after settings_load()
+     * (which would restore the on-disk "database path") and before
+     * init_tagcache() (which copies it into tc_stat.db_path for good)
+     * -- exactly where the shared database path must land. */
+    metro_force_shared_db_path();
 }
 
 static void redraw_current(void)
@@ -369,6 +375,7 @@ void metro_main(void)
              * forever in METRO_SYNC_POSTPONED. */
             if (metro_sync_job_active())
                 metro_sync_tick();
+            metro_music_bootstrap_tick(); /* M-095: seal after bootstrap rebuild */
 
             /* Now Playing has no input of its own most of the time
              * (elapsed time, the progress bar, and the volume overlay's

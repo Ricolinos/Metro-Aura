@@ -212,6 +212,94 @@ void metro_ensure_media_dirs(void)
     }
 }
 
+/* --- Contract v15 (M-095): shared /.aura/tagcache ------------------- */
+
+#define METRO_LEGACY_DB_DIR     ROCKBOX_DIR                  /* pre-v15 .tcd location */
+#define TAGCACHE_MASTER_NAME    "database_idx.tcd"           /* apps/tagcache.c TAGCACHE_FILE_MASTER */
+
+/* strlcpy/strlcat instead of snprintf("%s/%s"): gcc's
+ * -Wformat-truncation can't see that a d_name never fills MAX_PATH. */
+static void join_path(char *out, size_t outsz, const char *dir, const char *name)
+{
+    strlcpy(out, dir, outsz);
+    strlcat(out, "/", outsz);
+    strlcat(out, name, outsz);
+}
+
+static bool is_tagcache_file(const char *name)
+{
+    size_t n = strlen(name);
+    return strncmp(name, "database_", 9) == 0
+        && n > 4 && strcmp(name + n - 4, ".tcd") == 0;
+}
+
+/* Moves (or, when `move` is false, deletes) every database_*.tcd found
+ * directly under `from`. rename() within the same FAT volume is a
+ * directory-entry rewrite -- atomic per file, no data copied. */
+static void relocate_tagcache_files(const char *from, const char *to, bool move)
+{
+    DIR *d = opendir(from);
+    struct DIRENT *entry;
+    char src[MAX_PATH], dst[MAX_PATH];
+
+    if (!d)
+        return;
+    while ((entry = readdir(d)) != NULL)
+    {
+        if (!is_tagcache_file(entry->d_name))
+            continue;
+        join_path(src, sizeof(src), from, entry->d_name);
+        if (move)
+        {
+            join_path(dst, sizeof(dst), to, entry->d_name);
+            rename(src, dst);
+        }
+        else
+            remove(src);
+    }
+    closedir(d);
+}
+
+static void ensure_shared_root(void)
+{
+    if (!dir_exists("/.aura"))
+        mkdir("/.aura");
+}
+
+void metro_force_shared_db_path(void)
+{
+    bool shared_has_db = file_exists(AURA_SHARED_DB_DIR "/" TAGCACHE_MASTER_NAME);
+    bool tree_has_db   = file_exists(METRO_LEGACY_DB_DIR "/" TAGCACHE_MASTER_NAME);
+
+    /* 1. The setting itself. tagcache_init() copies this into
+     * tc_stat.db_path right after we return; open_db_fd() mkdir()s it
+     * lazily on first write, so a fresh disk needs nothing else. */
+    strmemccpy(global_settings.tagcache_db_path, AURA_SHARED_DB_DIR,
+               sizeof(global_settings.tagcache_db_path));
+
+    /* 2. Migration. A shared database (built by ANY family) always wins
+     * over a per-tree one: the stamp (M-091/M-095) decides whether it
+     * is current, and a stale per-tree copy would only be dead weight
+     * -- delete it. With no shared database yet, the tree's is moved
+     * in whole so this boot doesn't rebuild. The per-tree stamp travels
+     * with the database and only then (metro_sync_migrate_db_stamp()):
+     * a stamp describes the database it was written next to, not any
+     * other family's. */
+    if (!shared_has_db && tree_has_db)
+    {
+        ensure_shared_root();
+        if (!dir_exists(AURA_SHARED_DB_DIR))
+            mkdir(AURA_SHARED_DB_DIR);
+        relocate_tagcache_files(METRO_LEGACY_DB_DIR, AURA_SHARED_DB_DIR, true);
+        metro_sync_migrate_db_stamp(true);
+    }
+    else
+    {
+        relocate_tagcache_files(METRO_LEGACY_DB_DIR, NULL, false);
+        metro_sync_migrate_db_stamp(false);
+    }
+}
+
 void metro_settings_metro_cache_dir(const char *subdir, char *out, size_t outsz)
 {
     snprintf(out, outsz, "%s/metrocache/%s", METRO_DIR, subdir);
@@ -306,11 +394,11 @@ bool metro_firmware_switch_to(int i)
         return false;
     }
 
-    /* 4 y 5 -- el marcador SOLO si la biblioteca cambio desde que el
-     * hermano construyo su base (M-091, contrato v12): sin sync de por
-     * medio el cambio es instantaneo, sin "optimizando" de 5 minutos. */
+    /* 4 y 5 -- el marcador SOLO si la biblioteca cambio desde que se
+     * construyo la base compartida (M-091 v12, M-095 v15): sin sync de
+     * por medio el cambio es instantaneo, sin "optimizando" de 5 minutos. */
     refresh_root_binary();
-    if (metro_sync_switch_needs_rebuild(METRO_FW_OWN_DORMANT))
+    if (metro_sync_switch_needs_rebuild())
         metro_sync_write_music_pending_marker();
 
     /* 6: en seco. Nada de lo de arriba queda pendiente de escribir. */

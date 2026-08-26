@@ -54,6 +54,8 @@ static uint32_t s_uniqbuf[2048];
 
 static bool s_scan_triggered = false;
 static bool s_update_triggered = false;
+static bool s_bootstrap_sealed = false; /* M-095 */
+
 
 bool metro_music_is_playing(void)
 {
@@ -180,6 +182,8 @@ bool metro_music_db_ready(void)
         s_scan_triggered = true;
     }
 
+    metro_music_bootstrap_tick();
+
     /* A database built in an earlier session never otherwise learns
      * about files added since (USB sync, D-206 in Aura-Firmware: files
      * copied over USB, library empty on the device) -- Rockbox only
@@ -195,6 +199,36 @@ bool metro_music_db_ready(void)
     }
 
     return tagcache_is_usable();
+}
+
+void metro_music_bootstrap_tick(void)
+{
+    /* M-095 (v15): the bootstrap rebuild in metro_music_db_ready()
+     * never goes through metro_sync.c's finish_ok(), so nothing
+     * recorded which library it describes -- and the first firmware
+     * switch rebuilt the (now shared) database again for nothing. Seal
+     * it once, the first time it comes up usable after that rebuild
+     * (polled from metro_main.c's idle loop: the rebuild is async and
+     * the user may never re-enter Music this session). Same for a
+     * database that simply has no stamp yet (migrated from a pre-v12
+     * tree, or built by an older build): with no sync marker in play
+     * (state IDLE -- a pending job never gets here because db_ready()
+     * cedes to it, an errored marker keeps forcing its own rebuild
+     * regardless of the stamp) the once-per-boot tagcache_start_scan()
+     * is what makes it current, so it describes the library on disk. */
+    if (s_bootstrap_sealed || metro_sync_job_active())
+        return;
+    if (!s_scan_triggered && !s_update_triggered)
+        return; /* db_ready() hasn't run yet this session: nothing to judge */
+    if (!tagcache_is_usable() || !tagcache_is_fully_initialized())
+        return;
+    if (metro_sync_state() != METRO_SYNC_IDLE)
+        return;
+    if (s_scan_triggered || !metro_sync_db_stamp_present())
+    {
+        metro_sync_record_db_stamp();
+    }
+    s_bootstrap_sealed = true;
 }
 
 static enum metro_lang_id untagged_label_for(int tag)
