@@ -881,7 +881,8 @@ void Host_Init (quakeparms_t *parms)
 	SV_Init ();
         //printf("init 12");
 
-	Con_Printf ("Exe: "__TIME__" "__DATE__"\n");
+	/* Metro (M-094): no __TIME__/__DATE__ -- reproducible builds */
+	Con_Printf ("Exe: rockbox build\n");
 	Con_Printf ("%4.1f megabyte heap\n",parms->memsize/ (1024*1024.0));
 	
 	R_InitTextures ();		// needed even for dedicated servers

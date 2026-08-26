@@ -272,3 +272,21 @@ llegado al simdisk -- `make` no instala plugins, ver
   "-NdB"; `osd_text_init()` reserva ancho fijo para esa barra.
 
 Ver `DECISIONS.md` M-061.
+
+### M-094 (2026-08-26): `__TIME__`/`__DATE__` fuera de los plugins SDL
+
+Los juegos SDL incrustaban la hora de compilación, con lo que
+`quake.rock` y `duke3d.rock` cambiaban en cada build y la
+actualización selectiva de Aura Studio (contrato v11) arrastraba
+~2,2 MB espurios entre releases. Comentarios inline `Metro (M-094)`:
+
+- `apps/plugins/sdl/progs/quake/host.c`: `Con_Printf ("Exe: "__TIME__"
+  "__DATE__"\n")` → `"Exe: rockbox build\n"`.
+- `apps/plugins/sdl/progs/quake/host_cmd.c`: ídem.
+- `apps/plugins/sdl/progs/duke3d/Engine/src/display.c`: el `%s` de
+  "Compiled %s against SDL version…" recibe `"rockbox build"` en vez de
+  `__DATE__`; el `#if (!defined __DATE__)` de respaldo se elimina por
+  muerto.
+
+Ver `DECISIONS.md` M-094.
+
