@@ -31,14 +31,23 @@
 
 #include <stdbool.h>
 #include "lcd.h"
+#include "metro_master_art_format.h"
 
-#define METRO_ALBUMART_SIZE 136
+/* M-097 (contract v16): the Now Playing cover IS the shared 130x130
+ * master (was 136 decoded from JPEG per track) -- drawn 1:1 rather
+ * than upscaled 130->136, which would only blur it; the NP geometry
+ * absorbs the 6px (metro_screen_nowplaying.c). */
+#define METRO_ALBUMART_SIZE METRO_MASTER_ART_ALBUM_PX
 
 /* Loads (or reuses the cached decode of) the art for
- * audio_current_track() -- folder art first (find_albumart(), cover.jpg
- * next to the track or in its parent dir), embedded JPEG (ID3 APIC)
- * otherwise. False if nothing is playing or the track has no art at
- * all -- draw metro_draw_tile() instead. */
+ * audio_current_track(). M-097: the shared master
+ * (/.aura/art/albums/<album key>.art) if it exists, the .none marker
+ * short-circuits to "no art"; only with neither does it decode --
+ * folder art first (find_albumart(), cover.jpg next to the track or in
+ * its parent dir), embedded JPEG (ID3 APIC) otherwise -- and then it
+ * WRITES the master (or .none) so nobody decodes this album again.
+ * False if nothing is playing or the track has no art at all -- draw
+ * metro_draw_tile() instead. */
 bool metro_albumart_load_current(void);
 
 /* Valid only right after metro_albumart_load_current() returned true --
@@ -56,6 +65,13 @@ const fb_data *metro_albumart_bitmap(void);
  * has no effect on the other. */
 bool metro_albumart_load_background(void);
 
+/* M-097: what load_background() draws from: the 130px master scaled
+ * up (bilinear, fill-and-center-crop) to the screen -- at 30% opacity
+ * behind text that is indistinguishable from the old full-size JPEG
+ * decode, and it costs a 34KB read instead of a decode. Only a track
+ * with no resolvable album key (not in the database) still decodes
+ * the JPEG at screen size. */
+
 /* R4/FA-7 (M-078): mismo destino y misma caché-de-1 que
  * metro_albumart_load_background(), pero desde un archivo de imagen
  * ARBITRARIO en vez de la carátula de la pista en reproducción -- el
@@ -69,7 +85,11 @@ bool metro_albumart_load_background(void);
  * Las dos funciones comparten búfer y clave de caché, así que llamar a
  * una invalida lo que la otra hubiera dejado: es un solo fondo en
  * pantalla a la vez, por construcción. */
-bool metro_albumart_load_background_file(const char *path);
+/* M-097: `mtime` > 0 enables the artists master
+ * (/.aura/art/artists/r-<crc(path)>.<mtime>.art, contract v16): read
+ * or decode-and-write at 130px, then scaled up like the cover. With
+ * mtime <= 0 it decodes the file at screen size as before. */
+bool metro_albumart_load_background_file(const char *path, long mtime);
 
 /* Valid only right after metro_albumart_load_background() -- or
  * metro_albumart_load_background_file() -- returned true:
@@ -90,7 +110,13 @@ const fb_data *metro_albumart_background_bitmap(void);
  * would risk the exact JPEG_DECODE_OVERHEAD gap R3-F3 hit for artist
  * photos (docs/DESVIACIONES.md R3-3) for any cover landing near that
  * size. Returns false if the track has no metadata Rockbox can read,
- * or no art at all -- caller falls back to the usual accent tile. */
-bool metro_albumart_decode_track_cover(const char *track_path, fb_data *out);
+ * or no art at all -- caller falls back to the usual accent tile.
+ *
+ * M-097: `out` is now the MASTER (METRO_MASTER_ART_ALBUM_PX square,
+ * fill-and-center-cropped) rather than the 80px tile -- the caller
+ * (metro_thumbs_tick(), the background builder) writes it to
+ * /.aura/art and derives the tile from it. Caller holds the master-art
+ * lock. */
+bool metro_albumart_decode_track_master(const char *track_path, fb_data *out);
 
 #endif /* METRO_ALBUMART_H */

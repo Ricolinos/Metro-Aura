@@ -31,6 +31,7 @@
 #include "logf.h"
 
 #include "metro_transitions.h"
+#include "metro_master_art_builder.h" /* M-097: no decode under an animation */
 #include "metro_fb.h"
 #include "metro_motion.h"
 #include "metro_settings.h"
@@ -173,9 +174,11 @@ void metro_transitions_slide(metro_transitions_draw_fn draw_to, int direction)
         return;
     }
 
+    metro_master_art_builder_pause(true);
     metro_fb_capture(s_fb_from);
     metro_fb_render(s_fb_to, draw_to);
     run_slide(direction, spec);
+    metro_master_art_builder_pause(false);
 
     note_transition_cost("slide", spec, start_tick);
 }
@@ -369,6 +372,7 @@ void metro_transitions_push(metro_transitions_draw_fn draw_to, int direction)
         return;
     }
 
+    metro_master_art_builder_pause(true);
     metro_fb_capture(s_fb_from);
     metro_fb_render(s_fb_to, draw_to);
 
@@ -386,6 +390,7 @@ void metro_transitions_push(metro_transitions_draw_fn draw_to, int direction)
         run_slide(direction, spec);
         note_transition_cost("push-slide", spec, start_tick);
     }
+    metro_master_art_builder_pause(false);
 }
 
 /* FADE's own timing (6x3 under `all`, PLAN_MAESTRO.md S3.3) rather
@@ -416,6 +421,7 @@ void metro_transitions_fade(metro_transitions_draw_fn draw_to)
     }
 
     start_tick = current_tick;
+    metro_master_art_builder_pause(true);
     metro_fb_capture(s_fb_from);
     metro_fb_render(s_fb_to, draw_to);
 
@@ -430,6 +436,7 @@ void metro_transitions_fade(metro_transitions_draw_fn draw_to)
             sleep(fade_spec.frame_delay);
     }
     cpu_boost(false);
+    metro_master_art_builder_pause(false);
 
     note_transition_cost("fade", fade_spec, start_tick);
 }

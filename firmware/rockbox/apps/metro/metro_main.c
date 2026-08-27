@@ -50,6 +50,8 @@
 #include "metro_transitions.h"
 #include "metro_thumbs.h"
 #include "metro_music.h" /* metro_music_bootstrap_tick() -- M-095 */
+#include "metro_master_art.h"         /* M-097 */
+#include "metro_master_art_builder.h" /* M-097 */
 #include "metro_screen_photo_viewer.h"
 #include "metro_screen_lock.h"
 
@@ -247,6 +249,7 @@ void metro_main(void)
     /* metro_apply_hygiene() already ran inside init() (apps/main.c) --
      * see metro_main.h for why it can't run here, after init() returns. */
     metro_settings_load();
+    metro_master_art_init(); /* M-097: the decode/tagcache lock, before any user */
     metro_fonts_init();
     /* R2-F1/DD-1 (M-051): DRMODE_FG is the drawmode every apps/metro/
      * text draw expects -- metro_draw_text()/metro_draw_text_cut_right()
@@ -287,6 +290,11 @@ void metro_main(void)
     metro_screen_lock_run_if_active();
 
     metro_disk_handoff();
+
+    /* M-097 (contract v16): the shared master art cache builds itself
+     * in the background from here on -- no screen, low priority, idle
+     * only (metro_master_art_builder.h). */
+    metro_master_art_builder_init();
 
     /* F3: the twist navigation core supersedes the F2 type/palette
      * specimen as the running UI (metro_screen_specimen.c stays in
@@ -369,6 +377,9 @@ void metro_main(void)
             }
             continue;
         }
+
+        if (action != MACT_NONE)
+            metro_master_art_builder_note_input(); /* M-097: 2s idle window */
 
         if (action == MACT_NONE)
         {

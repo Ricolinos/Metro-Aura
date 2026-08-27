@@ -26,6 +26,7 @@
 #include "bmp.h"
 
 #include "metro_screen_photo_viewer.h"
+#include "metro_master_art.h" /* the decode lock -- M-097 */
 #include "metro_screen_list.h"
 #include "metro_music.h" /* R4/FA-8: metro_music_playpause() */
 #include "metro_draw.h"
@@ -334,7 +335,11 @@ static void load_current(void)
         format = FORMAT_NATIVE | FORMAT_RESIZE | FORMAT_KEEP_ASPECT;
     }
 
+    /* M-097: read_jpeg_file() keeps its decoder in one static; the
+     * background master builder may be inside it on its own thread. */
+    metro_master_art_lock();
     ret = read_jpeg_file(path, &s_bm, sizeof(s_scratch), format, NULL);
+    metro_master_art_unlock();
     s_loaded_ok = (ret > 0);
     if (s_loaded_ok && !(s_cover_mode && s_probe_ok))
     {

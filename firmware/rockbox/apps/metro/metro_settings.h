@@ -117,6 +117,10 @@ void metro_ensure_media_dirs(void);
  * literals (CLAUDE.md's compat-path rule); nothing else spells them. */
 #define AURA_SHARED_DB_DIR     "/.aura/tagcache"
 #define AURA_SHARED_THUMBS_DIR "/.aura/thumbs"
+/* M-097 (contract v16): the shared MASTER image cache -- one decoded
+ * RGB565 square per album/artist/photo, written once by whichever
+ * family is active and read by all three (metro_master_art_format.h). */
+#define AURA_SHARED_ART_DIR    "/.aura/art"
 
 /* M-095: points global_settings.tagcache_db_path at AURA_SHARED_DB_DIR
  * and migrates a per-tree database (ROCKBOX_DIR/database_*.tcd, the
@@ -145,6 +149,11 @@ void metro_settings_migrate_shared_thumbs(void);
  * Writes into `out` (does not create the directory -- caller's job,
  * mkdir() if missing, before writing inside it). */
 void metro_settings_metro_cache_dir(const char *subdir, char *out, size_t outsz);
+
+/* M-097: AURA_SHARED_ART_DIR/<subdir>/ (albums/artists/photos) -- the
+ * shared master cache directory, same rule as above: only this
+ * function spells the path, metro_master_art.c asks for it. */
+void metro_settings_master_art_dir(const char *subdir, char *out, size_t outsz);
 
 /* R3-F3/DD-6 (M-064): .../aura/artist_images.cfg (Studio's index) and
  * .../aura/artists/ (Studio's own source photo cache, the directory

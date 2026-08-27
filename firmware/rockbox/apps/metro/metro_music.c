@@ -47,6 +47,16 @@
 #include "metro_fsutil.h"
 #include "metro_volume.h"
 #include "metro_thumbs.h" /* metro_thumbs_mark_dirty() -- M-096 */
+#include "metro_master_art.h" /* the tagcache/decode lock -- M-097 */
+
+/* M-097: every tagcache walk in this file runs under the master-art
+ * lock. The static scratch it shares (s_uniqbuf, the key memo, the
+ * artist image tables) is touched from the UI thread AND from the
+ * background master builder; tagcache_get_next() can yield on a disk
+ * read (tag_filename lives on disk), so two walks could interleave.
+ * The lock is recursive, so nested calls within this file are fine. */
+#define LOCK()   metro_master_art_lock()
+#define UNLOCK() metro_master_art_unlock()
 
 /* Enough unique values for a few thousand artists/albums/genres --
  * same size Aura-Firmware settled on for the same purpose (D-021).
@@ -348,8 +358,12 @@ static int run_search(int tag, int filter_tag, int32_t filter_seek,
 
     if (!tagcache_is_usable())
         return 0;
+    LOCK();
     if (!tagcache_search(&tcs, tag))
+    {
+        UNLOCK();
         return 0;
+    }
 
     tagcache_search_set_uniqbuf(&tcs, s_uniqbuf, sizeof(s_uniqbuf));
     if (filter_tag >= 0)
@@ -382,6 +396,7 @@ static int run_search(int tag, int filter_tag, int32_t filter_seek,
     }
 
     tagcache_search_finish(&tcs);
+    UNLOCK();
 
     /* Album songs keep disc order (same criterion metro_music_play_songs_of_album()
      * uses to build the playback playlist -- the row picked on screen and the
@@ -488,8 +503,12 @@ int metro_music_recent_albums(metro_music_item_t *out, int max)
     if (!tagcache_is_usable())
         return 0;
 
+    LOCK();
     if (!tagcache_search(&tcs, tag_filename))
+    {
+        UNLOCK();
         return 0;
+    }
     tagcache_search_set_uniqbuf(&tcs, s_uniqbuf, sizeof(s_uniqbuf));
 
     while (tagcache_get_next(&tcs, buf, sizeof(buf)))
@@ -521,6 +540,7 @@ int metro_music_recent_albums(metro_music_item_t *out, int max)
         }
     }
     tagcache_search_finish(&tcs);
+    UNLOCK();
 
     /* Insertion sort by lastplayed descending -- agg_n capped at 300,
      * same shape as the sort insert_matching_tracks() already does
@@ -586,11 +606,16 @@ bool metro_music_track_path(int32_t idx_id, char *out, size_t outsz)
 
     if (!tagcache_is_usable())
         return false;
+    LOCK();
     if (!tagcache_search(&tcs, tag_filename))
+    {
+        UNLOCK();
         return false;
+    }
 
     ok = tagcache_retrieve(&tcs, idx_id, tag_filename, out, outsz);
     tagcache_search_finish(&tcs);
+    UNLOCK();
     return ok;
 }
 
@@ -602,8 +627,12 @@ static bool track_path_mtime(int32_t idx_id, char *out, size_t outsz, long *mtim
 
     if (!tagcache_is_usable())
         return false;
+    LOCK();
     if (!tagcache_search(&tcs, tag_filename))
+    {
+        UNLOCK();
         return false;
+    }
 
     ok = tagcache_retrieve(&tcs, idx_id, tag_filename, out, outsz);
     if (ok)
@@ -612,6 +641,7 @@ static bool track_path_mtime(int32_t idx_id, char *out, size_t outsz, long *mtim
         *mtime = tagcache_get_numeric(&tcs, tag_mtime);
     }
     tagcache_search_finish(&tcs);
+    UNLOCK();
     return ok;
 }
 
@@ -623,18 +653,22 @@ bool metro_music_album_art_key(int32_t album_seek, char *out, size_t outsz)
     long mtime;
     int i;
 
+    LOCK();
     for (i = 0; i < s_art_key_memo_n; i++)
         if (s_art_key_memo[i].seek == album_seek)
         {
             snprintf(out, outsz, "a-%08lx.%ld",
                      (unsigned long)s_art_key_memo[i].crc, s_art_key_memo[i].mtime);
+            UNLOCK();
             return true;
         }
 
-    if (metro_music_songs_of_album(album_seek, &track, 1) < 1)
+    if (metro_music_songs_of_album(album_seek, &track, 1) < 1 ||
+        !track_path_mtime(track.seek, path, sizeof(path), &mtime))
+    {
+        UNLOCK();
         return false;
-    if (!track_path_mtime(track.seek, path, sizeof(path), &mtime))
-        return false;
+    }
     crc = crc_32(path, strlen(path), 0xffffffff);
 
     i = s_art_key_memo_n < ART_KEY_MEMO_N ? s_art_key_memo_n++ : s_art_key_memo_ring;
@@ -644,7 +678,63 @@ bool metro_music_album_art_key(int32_t album_seek, char *out, size_t outsz)
     s_art_key_memo[i].mtime = mtime;
 
     snprintf(out, outsz, "a-%08lx.%ld", (unsigned long)crc, mtime);
+    UNLOCK();
     return true;
+}
+
+bool metro_music_album_key_for_track(const char *track_path, char *out, size_t outsz)
+{
+    struct tagcache_search tcs;
+    struct tagcache_search_clause clause;
+    char buf[TAGCACHE_BUFSZ];
+    int32_t album_seek = -1;
+
+    if (!tagcache_is_usable() || !track_path || !track_path[0])
+        return false;
+
+    LOCK();
+    if (!tagcache_search(&tcs, tag_album))
+    {
+        UNLOCK();
+        return false;
+    }
+    tagcache_search_set_uniqbuf(&tcs, s_uniqbuf, sizeof(s_uniqbuf));
+    memset(&clause, 0, sizeof(clause));
+    clause.tag = tag_filename;
+    clause.type = clause_is;
+    clause.numeric = false;
+    clause.str = (char *)track_path;
+    tagcache_search_add_clause(&tcs, &clause);
+    if (tagcache_get_next(&tcs, buf, sizeof(buf)))
+        album_seek = tcs.result_seek;
+    tagcache_search_finish(&tcs);
+    UNLOCK();
+
+    if (album_seek < 0)
+        return false;
+    return metro_music_album_art_key(album_seek, out, outsz);
+}
+
+int metro_music_album_seeks(int32_t *out, int max)
+{
+    struct tagcache_search tcs;
+    char buf[TAGCACHE_BUFSZ];
+    int n = 0;
+
+    if (!tagcache_is_usable())
+        return 0;
+    LOCK();
+    if (!tagcache_search(&tcs, tag_album))
+    {
+        UNLOCK();
+        return 0;
+    }
+    tagcache_search_set_uniqbuf(&tcs, s_uniqbuf, sizeof(s_uniqbuf));
+    while (n < max && tagcache_get_next(&tcs, buf, sizeof(buf)))
+        out[n++] = tcs.result_seek;
+    tagcache_search_finish(&tcs);
+    UNLOCK();
+    return n;
 }
 
 int metro_music_songs_of_genre(int32_t genre_seek, metro_music_item_t *out, int max)
@@ -670,8 +760,12 @@ static bool insert_matching_tracks(int filter_tag, int32_t filter_seek, bool alb
 
     if (!tagcache_is_usable())
         return false;
+    LOCK();
     if (!tagcache_search(&tcs, tag_title))
+    {
+        UNLOCK();
         return false;
+    }
 
     tagcache_search_set_uniqbuf(&tcs, s_uniqbuf, sizeof(s_uniqbuf));
     if (filter_tag >= 0)
@@ -738,6 +832,7 @@ static bool insert_matching_tracks(int filter_tag, int32_t filter_seek, bool alb
     }
 
     tagcache_search_finish(&tcs);
+    UNLOCK();
     return inserted > 0;
 }
 
@@ -858,6 +953,7 @@ void metro_music_reload_artist_images(void)
     int fd;
     static const char *const jpg_ext[] = { ".jpg" };
 
+    LOCK();
     metro_artist_images_init(&s_artist_images);
 
     metro_settings_artist_images_cfg_path(path, sizeof(path));
@@ -874,24 +970,59 @@ void metro_music_reload_artist_images(void)
     s_artist_image_files_n = metro_fsutil_list_by_ext_mtime(
         path, jpg_ext, 1, s_artist_image_files, s_artist_image_mtimes,
         METRO_ARTIST_IMAGES_MAX);
+    UNLOCK();
+}
+
+int metro_music_artist_image_count(void)
+{
+    return s_artist_image_files_n;
+}
+
+bool metro_music_artist_image_at(int i, char *filename_out, size_t filename_sz,
+                                 long *mtime_out)
+{
+    bool ok;
+    LOCK();
+    ok = i >= 0 && i < s_artist_image_files_n;
+    if (ok)
+    {
+        strlcpy(filename_out, s_artist_image_files[i], filename_sz);
+        *mtime_out = s_artist_image_mtimes[i];
+    }
+    UNLOCK();
+    return ok;
+}
+
+void metro_music_artist_image_master_key(const char *filename, long mtime,
+                                         char *out, size_t outsz)
+{
+    char path[MAX_PATH];
+    size_t n;
+
+    metro_settings_artists_dir(path, sizeof(path));
+    n = strlen(path);
+    snprintf(path + n, sizeof(path) - n, "/%s", filename);
+    metro_master_art_format_key('r', crc_32(path, strlen(path), 0xffffffff),
+                                mtime, out, outsz);
 }
 
 bool metro_music_artist_image(const char *artist_tag, char *filename_out,
                                size_t filename_sz, long *mtime_out)
 {
-    const char *filename = metro_artist_images_lookup(&s_artist_images, artist_tag);
+    const char *filename;
     int i;
 
-    if (!filename)
-        return false;
-
-    for (i = 0; i < s_artist_image_files_n; i++)
-        if (!strcmp(s_artist_image_files[i], filename))
-        {
-            strlcpy(filename_out, filename, filename_sz);
-            *mtime_out = s_artist_image_mtimes[i];
-            return true;
-        }
-
-    return false; /* referenced file doesn't exist on disk right now */
+    LOCK();
+    filename = metro_artist_images_lookup(&s_artist_images, artist_tag);
+    if (filename)
+        for (i = 0; i < s_artist_image_files_n; i++)
+            if (!strcmp(s_artist_image_files[i], filename))
+            {
+                strlcpy(filename_out, filename, filename_sz);
+                *mtime_out = s_artist_image_mtimes[i];
+                UNLOCK();
+                return true;
+            }
+    UNLOCK();
+    return false; /* not mapped, or referenced file doesn't exist on disk right now */
 }

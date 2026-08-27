@@ -53,12 +53,25 @@ struct metro_thumb_source {
      * instead of a garbage key. */
     bool (*cache_key)(void *ctx, int index, char *out, size_t out_len);
 
-    /* Decodes this item straight into a METRO_TILE_SIZE x
-     * METRO_TILE_SIZE dst -- whatever that takes for this source (a
-     * JPEG under /Photos/, a JPEG under the artists/ cache, resolving
-     * a representative track's art via tagcache for albums). Returns
-     * false on failure (missing file, decode error) -- the caller
-     * keeps showing the accent-tile placeholder. */
+    /* M-097 (contract v16): this item's MASTER key under
+     * /.aura/art/<cache_subdir>/ ("a-<crc>.<mtime>" for albums --
+     * the same string as cache_key --, "r-<crc>.<mtime>" artists,
+     * "p-<crc>.<mtime>" photos; metro_master_art_format.h). Same
+     * false-on-nothing contract as cache_key. May be the same
+     * function as cache_key. */
+    bool (*master_key)(void *ctx, int index, char *out, size_t out_len);
+
+    /* Decodes this item straight into a MASTER-sized dst (px x px,
+     * px = metro_master_art_px_for_subdir(cache_subdir): 130 for
+     * albums/artists, 80 for photos), square, fill-and-center-cropped
+     * -- whatever that takes for this source (a JPEG under /Photos/, a
+     * JPEG under the artists/ cache, resolving a representative
+     * track's art via tagcache for albums). Only ever called when no
+     * master exists yet (metro_thumbs_tick() writes the master right
+     * after, and derives the 80px tile from it). Returns false on
+     * failure (missing file, decode error) -- a .none marker is
+     * written and the caller keeps showing the accent-tile
+     * placeholder. Runs under the master-art lock. */
     bool (*decode)(void *ctx, int index, fb_data *dst);
 };
 
@@ -89,16 +102,16 @@ bool metro_thumbs_tick(void);
 void metro_thumbs_reset(void);
 
 /* Shared decode helper: FORMAT_KEEP_ASPECT JPEG decode of `path`
- * followed by a nearest-neighbour "cover" crop to METRO_TILE_SIZE x
- * METRO_TILE_SIZE, straight into `out` -- the exact algorithm R2-F2
- * used for photo thumbnails (DECISIONS.md M-057), now shared by any
- * source whose decode() is "read one JPEG file, cover-crop it" (photos
- * and artist photos both are; quickplay album art is not -- it
- * resolves a representative track first, then decodes that). Owns its
- * own static scratch buffer -- safe because only one decode happens at
- * a time by construction (metro_thumbs_tick()'s one-per-call budget),
- * so sources using this never need their own. */
-bool metro_thumbs_decode_jpeg_cover(const char *path, fb_data *out);
+ * followed by a nearest-neighbour "cover" crop to px x px (<=
+ * METRO_MASTER_ART_MAX_PX), straight into `out` -- the exact algorithm
+ * R2-F2 used for photo thumbnails (DECISIONS.md M-057), now shared by
+ * any source whose decode() is "read one JPEG file, cover-crop it"
+ * (photos at 80, artist photos at 130 -- M-097; quickplay album art
+ * is not -- it resolves a representative track first, then decodes
+ * that). Owns its own static scratch buffer -- safe because callers
+ * hold the master-art lock (metro_master_art.h), so only one decode
+ * happens at a time across threads. */
+bool metro_thumbs_decode_jpeg_cover(const char *path, fb_data *out, int px);
 
 /* M-096 (contract v15): orphan sweep for one source. Deletes every
  * .mth in that source's cache directory whose stem is not the cache
@@ -113,7 +126,8 @@ bool metro_thumbs_decode_jpeg_cover(const char *path, fb_data *out);
  * (metro_settings.c), persisted as an empty file
  * (<thumbs dir>/albums.dirty) so it survives a reboot, and consumed on
  * the next entry into the album grid. Returns the number of files
- * removed. */
+ * removed. M-097: sweeps the source's /.aura/art/<subdir>/ masters
+ * (.art/.none) with the same live table (master keys) too. */
 int metro_thumbs_gc(const struct metro_thumb_source *source, void *ctx, int count);
 void metro_thumbs_mark_dirty(void);
 bool metro_thumbs_take_dirty(void);

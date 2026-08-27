@@ -26,12 +26,15 @@
 #include "bmp.h"
 #include "string-extra.h"
 #include "crc32.h"
+#include "debug.h" /* DEBUGF -- M-097: every JPEG decode is logged in the sim */
 #include <stdlib.h> /* qsort() -- metro_thumbs_gc(), M-096 */
 
 #include "metro_thumbs.h"
 #include "metro_settings.h"
 #include "metro_draw.h"
 #include "metro_fsutil.h"
+#include "metro_master_art.h" /* M-097: masters first, JPEG last */
+#include "metro_master_art_builder.h" /* M-097: a dirty library re-runs the pass */
 
 #define THUMB_PX (METRO_TILE_SIZE * METRO_TILE_SIZE)
 
@@ -52,6 +55,11 @@
 struct thumb_slot {
     char key[KEY_LEN];
     bool valid;
+    /* M-097: a negative entry -- the item has no art (shared .none
+     * marker, or a decode that just failed). metro_thumbs_get() answers
+     * NULL for it WITHOUT queueing, so a coverless album stops costing
+     * a probe/decode attempt on every idle tick. */
+    bool none;
     fb_data pixels[THUMB_PX];
 };
 
@@ -95,7 +103,11 @@ static int s_pending_n = 0;
  * sources are typically far larger than 128px, so the wider budget
  * costs nothing there, it just also covers the rare small photo that
  * would have hit the exact same gap). */
-#define SCRATCH_MAX_SRC_PX 128
+/* M-097: artist masters are 130px (contract v16) -- decoded at 130
+ * from a <=128px source the decoder can't step down, so the native
+ * decode and the target both fit in a 130px budget with the same x2
+ * margin. */
+#define SCRATCH_MAX_SRC_PX METRO_MASTER_ART_MAX_PX
 #define SCRATCH_SIZE (SCRATCH_MAX_SRC_PX * SCRATCH_MAX_SRC_PX * 2 * 2)
 static unsigned char s_scratch[SCRATCH_SIZE];
 
@@ -212,62 +224,35 @@ static void remove_stale(const struct metro_thumb_source *source, const char *ke
 /* Nearest-neighbour "cover" crop from a single FORMAT_KEEP_ASPECT
  * decode -- no second (unscaled) decode and no JPEG-dimension probe
  * needed. `src`/`sw`/`sh` is the KEEP_ASPECT result (one dimension
- * already == METRO_TILE_SIZE, the other <= it); this conceptually
- * upscales that result until BOTH dimensions reach METRO_TILE_SIZE,
- * then samples the centered METRO_TILE_SIZE x METRO_TILE_SIZE crop
- * straight out of `src` (never materializes the upscaled bitmap).
- * Trades a little sharpness on the cropped axis for staying a single
- * cheap decode -- acceptable at 80x80. The photo VIEWER's own "cubrir"
- * (full 320x240) needs real precision instead, hence that one reads
- * Aura's Q16.16 algorithm as reference; a thumbnail this small doesn't
- * call for the same machinery. */
-static void cover_crop(const fb_data *src, int sw, int sh, fb_data *out)
-{
-    int scale_den = (sw < sh) ? sw : sh; /* the dimension short of METRO_TILE_SIZE */
-    int upscaled_w = sw * METRO_TILE_SIZE / scale_den;
-    int upscaled_h = sh * METRO_TILE_SIZE / scale_den;
-    int crop_x = (upscaled_w - METRO_TILE_SIZE) / 2;
-    int crop_y = (upscaled_h - METRO_TILE_SIZE) / 2;
-    int ox, oy;
-
-    for (oy = 0; oy < METRO_TILE_SIZE; oy++)
-    {
-        int up_y = oy + crop_y;
-        int sy = up_y * scale_den / METRO_TILE_SIZE;
-
-        if (sy < 0) sy = 0;
-        if (sy >= sh) sy = sh - 1;
-
-        for (ox = 0; ox < METRO_TILE_SIZE; ox++)
-        {
-            int up_x = ox + crop_x;
-            int sx = up_x * scale_den / METRO_TILE_SIZE;
-
-            if (sx < 0) sx = 0;
-            if (sx >= sw) sx = sw - 1;
-
-            out[oy * METRO_TILE_SIZE + ox] = src[sy * sw + sx];
-        }
-    }
-}
-
-bool metro_thumbs_decode_jpeg_cover(const char *path, fb_data *out)
+ * already == px, the other <= it); metro_master_art_cover() conceptually
+ * upscales that result until BOTH dimensions reach px, then samples
+ * the centered px x px crop straight out of `src`. Trades a little
+ * sharpness on the cropped axis for staying a single cheap decode --
+ * acceptable at these sizes. The photo VIEWER's own "cubrir" (full
+ * 320x240) needs real precision instead, hence that one reads Aura's
+ * Q16.16 algorithm as reference. M-097: the crop itself moved to the
+ * pure metro_master_art_format.c (host-tested), parametrized by px. */
+bool metro_thumbs_decode_jpeg_cover(const char *path, fb_data *out, int px)
 {
     struct bitmap bm;
     int ret;
 
-    bm.width = METRO_TILE_SIZE;
-    bm.height = METRO_TILE_SIZE;
+    if (px <= 0 || px > METRO_MASTER_ART_MAX_PX)
+        return false;
+
+    bm.width = px;
+    bm.height = px;
     bm.data = (char *)s_scratch;
 #if (LCD_DEPTH > 1)
     bm.maskdata = NULL;
 #endif
+    DEBUGF("metro_art: jpeg decode (cover %dpx) %s\n", px, path);
     ret = read_jpeg_file(path, &bm, sizeof(s_scratch),
                           FORMAT_NATIVE | FORMAT_RESIZE | FORMAT_KEEP_ASPECT, NULL);
-    if (ret <= 0)
+    if (ret <= 0 || bm.width <= 0 || bm.height <= 0)
         return false;
 
-    cover_crop((const fb_data *)s_scratch, bm.width, bm.height, out);
+    metro_master_art_cover((const fb_data *)s_scratch, bm.width, bm.height, out, px, px);
     return true;
 }
 
@@ -286,7 +271,7 @@ const fb_data *metro_thumbs_get(const struct metro_thumb_source *source,
 
     s = find_slot(key);
     if (s)
-        return s->pixels;
+        return s->none ? NULL : s->pixels;
 
     /* Disk cache is a raw read (no decode) -- cheap enough to try
      * synchronously, unlike an actual decode. */
@@ -301,6 +286,7 @@ const fb_data *metro_thumbs_get(const struct metro_thumb_source *source,
             s = &s_window[s_window_ring];
             strlcpy(s->key, key, sizeof(s->key));
             s->valid = true;
+            s->none = false;
             s_window_ring = (s_window_ring + 1) % WINDOW_N;
             return s->pixels;
         }
@@ -321,11 +307,36 @@ const fb_data *metro_thumbs_get(const struct metro_thumb_source *source,
     return NULL;
 }
 
+/* M-097: the 80px tile from a master -- photos' masters already ARE
+ * 80px (straight copy); albums'/artists' are 130px, reduced with the
+ * integer box filter (metro_master_art_format.c). */
+static void derive_tile(const fb_data *master, int px, fb_data *out)
+{
+    if (px == METRO_TILE_SIZE)
+        memcpy(out, master, THUMB_PX * sizeof(fb_data));
+    else
+        metro_master_art_box_down(master, px, out, METRO_TILE_SIZE);
+}
+
+static void mark_none(struct thumb_slot *s, const char *key)
+{
+    strlcpy(s->key, key, sizeof(s->key));
+    s->valid = true;
+    s->none = true;
+    s_window_ring = (s_window_ring + 1) % WINDOW_N;
+}
+
 bool metro_thumbs_tick(void)
 {
     struct pending_entry entry;
     char path[MAX_PATH];
+    char mkey[METRO_MASTER_ART_KEY_LEN];
     struct thumb_slot *s;
+    const char *subdir;
+    int px;
+    bool have_mkey;
+    bool decoded = false;
+    fb_data *master;
     int fd;
     int i;
 
@@ -338,11 +349,59 @@ bool metro_thumbs_tick(void)
     s_pending_n--;
 
     s = &s_window[s_window_ring];
-    if (!entry.source->decode(entry.ctx, entry.index, s->pixels))
+    subdir = entry.source->cache_subdir;
+    px = metro_master_art_px_for_subdir(subdir);
+    if (px <= 0)
+        return true;
+
+    /* M-097 (contract v16): master first, JPEG only when neither the
+     * master nor its negative marker exists -- and then the master is
+     * written before the tile, so no family ever decodes this JPEG
+     * again. Under the lock: the background builder may be doing the
+     * exact same thing for another (or this very) item. */
+    metro_master_art_lock();
+    master = metro_master_art_scratch();
+    have_mkey = entry.source->master_key &&
+                entry.source->master_key(entry.ctx, entry.index, mkey, sizeof(mkey));
+    if (have_mkey)
+    {
+        switch (metro_master_art_probe(subdir, mkey))
+        {
+        case METRO_MASTER_ART_PRESENT:
+            decoded = metro_master_art_read(subdir, mkey, master, px);
+            if (decoded)
+                break;
+            /* unreadable/foreign size: fall through and rebuild it */
+            /* FALLTHROUGH */
+        case METRO_MASTER_ART_MISSING:
+            decoded = entry.source->decode(entry.ctx, entry.index, master);
+            if (decoded)
+                metro_master_art_write(subdir, mkey, master, px);
+            else
+                metro_master_art_write_none(subdir, mkey);
+            break;
+        case METRO_MASTER_ART_NONE:
+            decoded = false;
+            break;
+        }
+    }
+    else
+    {
+        decoded = entry.source->decode(entry.ctx, entry.index, master);
+    }
+    if (decoded)
+        derive_tile(master, px, s->pixels);
+    metro_master_art_unlock();
+
+    if (!decoded)
+    {
+        mark_none(s, entry.key);
         return true; /* budget spent either way -- don't retry this tick */
+    }
 
     strlcpy(s->key, entry.key, sizeof(s->key));
     s->valid = true;
+    s->none = false;
     s_window_ring = (s_window_ring + 1) % WINDOW_N;
 
     ensure_cache_dir(entry.source);
@@ -384,10 +443,11 @@ void metro_thumbs_mark_dirty(void)
     int fd;
 
     dirty_flag_path(path, sizeof(path));
-    ensure_cache_dir(&(const struct metro_thumb_source){ "albums", NULL, NULL });
+    ensure_cache_dir(&(const struct metro_thumb_source){ "albums", NULL, NULL, NULL });
     fd = creat(path, 0666);
     if (fd >= 0)
         close(fd);
+    metro_master_art_builder_request_pass(); /* M-097 */
 }
 
 bool metro_thumbs_take_dirty(void)
@@ -458,5 +518,19 @@ int metro_thumbs_gc(const struct metro_thumb_source *source, void *ctx, int coun
         removed++;
     }
     closedir(d);
+
+    /* M-097: same sweep over the shared masters. Albums' master key IS
+     * the cache key (same table); photos/artists key their masters by
+     * path crc, so the table is rebuilt from master_key for them. */
+    if (source->master_key && source->master_key != source->cache_key)
+    {
+        n = 0;
+        for (i = 0; i < count && n < GC_MAX_KEYS; i++)
+            if (source->master_key(ctx, i, key, sizeof(key)))
+                s_gc_keys[n++] = crc_32(key, strlen(key), 0xffffffff);
+        qsort(s_gc_keys, n, sizeof(s_gc_keys[0]), cmp_u32);
+    }
+    if (source->master_key)
+        removed += metro_master_art_gc(source->cache_subdir, s_gc_keys, n);
     return removed;
 }

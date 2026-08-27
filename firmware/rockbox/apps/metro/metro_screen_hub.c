@@ -35,7 +35,8 @@
 #include "metro_video.h"
 #include "metro_photos.h"
 #include "metro_thumbs.h"
-#include "metro_albumart.h" /* R3-F4/DD-5 -- metro_albumart_decode_track_cover() */
+#include "metro_albumart.h" /* R3-F4/DD-5 -- metro_albumart_decode_track_master() */
+#include "metro_master_art_format.h" /* METRO_MASTER_ART_*_PX -- M-097 */
 #include "metro_fsutil.h"
 #include "metro_settings.h"
 #include "metro_screen_photo_viewer.h"
@@ -182,7 +183,7 @@ static void photo_pivot_on_select(void *ctx, int index)
  * <mtime>" (the same pair the old metro_photo_thumbs.c used to
  * invalidate a stale cache entry), decode is a plain JPEG-cover read
  * from /Photos/<filename> via the engine's shared helper. */
-#define PHOTOS_DIR "/Photos"
+#define PHOTOS_DIR METRO_PHOTOS_DIR
 
 static bool photo_thumb_cache_key(void *ctx, int index, char *out, size_t out_len)
 {
@@ -193,16 +194,28 @@ static bool photo_thumb_cache_key(void *ctx, int index, char *out, size_t out_le
     return true;
 }
 
+/* M-097 (contract v16): master key "p-<crc32 of /Photos/<file>>.<mtime>"
+ * -- the .mth key above stays "<file>.<mtime>" (moonlit shares those
+ * files under that name); the shared master is a separate file. */
+static bool photo_thumb_master_key(void *ctx, int index, char *out, size_t out_len)
+{
+    struct photo_pivot_ctx *c = ctx;
+    if (index < 0 || index >= *c->count)
+        return false;
+    metro_photos_master_key(c->items[index].filename, c->items[index].mtime, out, out_len);
+    return true;
+}
+
 static bool photo_thumb_decode(void *ctx, int index, fb_data *dst)
 {
     struct photo_pivot_ctx *c = ctx;
     char path[MAX_PATH];
     snprintf(path, sizeof(path), "%s/%s", PHOTOS_DIR, c->items[index].filename);
-    return metro_thumbs_decode_jpeg_cover(path, dst);
+    return metro_thumbs_decode_jpeg_cover(path, dst, METRO_MASTER_ART_PHOTO_PX);
 }
 
 static const struct metro_thumb_source photo_thumb_source = {
-    "photos", photo_thumb_cache_key, photo_thumb_decode
+    "photos", photo_thumb_cache_key, photo_thumb_master_key, photo_thumb_decode
 };
 
 /* R2-F2/DD-7/DD-9: bitmap for the grid's get_tile() -- delegates
@@ -376,11 +389,14 @@ static bool album_thumb_decode(void *ctx, int index, fb_data *dst)
     if (!metro_music_track_path(track.seek, path, sizeof(path)))
         return false;
 
-    return metro_albumart_decode_track_cover(path, dst);
+    /* M-097: decodes the 130px MASTER (the engine derives the tile). */
+    return metro_albumart_decode_track_master(path, dst);
 }
 
+/* M-097: the album's master key IS its cache key (a-<crc>.<mtime>,
+ * M-096) -- one string, shared by the .mth and the .art. */
 static const struct metro_thumb_source album_thumb_source = {
-    "albums", album_thumb_cache_key, album_thumb_decode
+    "albums", album_thumb_cache_key, album_thumb_cache_key, album_thumb_decode
 };
 
 static const fb_data *album_pivot_get_tile(void *ctx, int index)
@@ -439,6 +455,21 @@ static bool artist_thumb_cache_key(void *ctx, int index, char *out, size_t out_l
     return true;
 }
 
+/* M-097: master key "r-<crc32 of <artists dir>/<file>>.<mtime>". */
+static bool artist_thumb_master_key(void *ctx, int index, char *out, size_t out_len)
+{
+    char filename[METRO_FSUTIL_NAME_LEN];
+    long mtime;
+    (void)ctx;
+
+    if (index < 0 || index >= s_artists_n)
+        return false;
+    if (!metro_music_artist_image(s_artists[index].label, filename, sizeof(filename), &mtime))
+        return false;
+    metro_music_artist_image_master_key(filename, mtime, out, out_len);
+    return true;
+}
+
 static bool artist_thumb_decode(void *ctx, int index, fb_data *dst)
 {
     char filename[METRO_FSUTIL_NAME_LEN];
@@ -454,11 +485,11 @@ static bool artist_thumb_decode(void *ctx, int index, fb_data *dst)
      * rule. */
     metro_settings_artists_dir(dir, sizeof(dir));
     snprintf(path, sizeof(path), "%s/%s", dir, filename);
-    return metro_thumbs_decode_jpeg_cover(path, dst);
+    return metro_thumbs_decode_jpeg_cover(path, dst, METRO_MASTER_ART_ARTIST_PX);
 }
 
 static const struct metro_thumb_source artist_thumb_source = {
-    "artists", artist_thumb_cache_key, artist_thumb_decode
+    "artists", artist_thumb_cache_key, artist_thumb_master_key, artist_thumb_decode
 };
 
 static const fb_data *artist_pivot_get_tile(void *ctx, int index)

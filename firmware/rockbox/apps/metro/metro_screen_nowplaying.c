@@ -71,7 +71,7 @@
  * como en el resto de la app, no derivados de métricas de fuente. */
 #define NP_LEFT_X        12
 #define NP_VOL_Y         30   /* nivel de volumen, MFONT_LIST, sobre la carátula */
-#define NP_COVER_Y       56   /* 136px -> 192 */
+#define NP_COVER_Y       56   /* 130px -> 186 (M-097: la maestra, antes 136) */
 #define NP_COL_X        164   /* columna derecha */
 #define NP_MODE_Y        60   /* estrella / aleatorio / repetir, 16px */
 #define NP_MODE_PITCH    36
@@ -530,7 +530,8 @@ static bool load_background(void)
          * esta ruta -- regla de rutas de contrato del CLAUDE.md. */
         metro_settings_artists_dir(dir, sizeof(dir));
         snprintf(path, sizeof(path), "%s/%s", dir, filename);
-        if (metro_albumart_load_background_file(path))
+        /* M-097: el mtime habilita la maestra de artista compartida. */
+        if (metro_albumart_load_background_file(path, mtime))
             return true;
         /* Mapeada pero ilegible (archivo corrupto, borrado entre el
          * índice y aquí): se cae a la carátula, no a fondo plano. */

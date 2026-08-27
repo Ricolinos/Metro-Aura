@@ -351,6 +351,11 @@ void metro_settings_metro_cache_dir(const char *subdir, char *out, size_t outsz)
     snprintf(out, outsz, "%s/%s", AURA_SHARED_THUMBS_DIR, subdir);
 }
 
+void metro_settings_master_art_dir(const char *subdir, char *out, size_t outsz)
+{
+    snprintf(out, outsz, "%s/%s", AURA_SHARED_ART_DIR, subdir);
+}
+
 /* R3-F3/DD-6 (M-064): Studio's own index + photo cache -- distinct
  * from metro_settings_metro_cache_dir("artists", ...) above, which is
  * Metro's OWN derived 80x80 tile cache

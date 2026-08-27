@@ -146,6 +146,18 @@ bool metro_music_track_path(int32_t idx_id, char *out, size_t outsz);
  * false if the album has no resolvable track (or tagcache is down). */
 bool metro_music_album_art_key(int32_t album_seek, char *out, size_t outsz);
 
+/* M-097: the album art key of the album `track_path` belongs to --
+ * Now Playing only knows the playing file, not an album seek. One
+ * tagcache search (tag_album with a filename clause) resolves the
+ * seek, then metro_music_album_art_key(). False if the track is not
+ * in the database (untracked file, database down). */
+bool metro_music_album_key_for_track(const char *track_path, char *out, size_t outsz);
+
+/* M-097: every album's seek, no labels (the background master builder
+ * walks the whole library and must not pay 216KB for the strings it
+ * never shows). Same order as metro_music_albums(). */
+int metro_music_album_seeks(int32_t *out, int max);
+
 int metro_music_albums_of_artist(int32_t artist_seek,
                                   metro_music_item_t *out, int max);
 int metro_music_songs_of_album(int32_t album_seek,
@@ -189,5 +201,20 @@ void metro_music_reload_artist_images(void);
  * reason. */
 bool metro_music_artist_image(const char *artist_tag, char *filename_out,
                                size_t filename_sz, long *mtime_out);
+
+/* M-097: the scanned artists/ files themselves (after
+ * metro_music_reload_artist_images()), for the master builder -- every
+ * .jpg in the directory, mapped or not. */
+int  metro_music_artist_image_count(void);
+bool metro_music_artist_image_at(int i, char *filename_out, size_t filename_sz,
+                                 long *mtime_out);
+
+/* M-097 (contract v16): master art key of an artist image --
+ * "r-<crc32 of the image's absolute path>.<mtime>". The path is
+ * metro_settings_artists_dir()/<filename>, so it is composed here
+ * (the only module that already builds it besides the callers of
+ * metro_settings_artists_dir()). */
+void metro_music_artist_image_master_key(const char *filename, long mtime,
+                                         char *out, size_t outsz);
 
 #endif /* METRO_MUSIC_H */

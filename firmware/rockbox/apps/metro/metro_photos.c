@@ -17,11 +17,16 @@
  * KIND, either express or implied.
  *
  ****************************************************************************/
+#include <stdio.h>
+#include <string.h>
+#include "file.h" /* MAX_PATH */
 #include "string-extra.h"
+#include "crc32.h"
 
 #include "metro_photos.h"
+#include "metro_master_art_format.h"
 
-#define PHOTOS_DIR "/Photos"
+#define PHOTOS_DIR METRO_PHOTOS_DIR
 
 static const char *const k_exts[] = { ".jpg", ".jpeg" };
 
@@ -44,4 +49,28 @@ int metro_photos_list(metro_photo_item_t *out, int max)
         out[i].mtime = mtimes[i];
     }
     return n;
+}
+
+void metro_photos_master_key(const char *filename, long mtime, char *out, size_t outsz)
+{
+    char path[MAX_PATH];
+    snprintf(path, sizeof(path), "%s/%s", PHOTOS_DIR, filename);
+    metro_master_art_format_key('p', crc_32(path, strlen(path), 0xffffffff),
+                                mtime, out, outsz);
+}
+
+bool metro_photos_name_is_photo(const char *name)
+{
+    size_t len, i;
+
+    if (metro_fsutil_is_hidden_name(name))
+        return false;
+    len = strlen(name);
+    for (i = 0; i < sizeof(k_exts) / sizeof(k_exts[0]); i++)
+    {
+        size_t el = strlen(k_exts[i]);
+        if (len > el && !strcasecmp(name + len - el, k_exts[i]))
+            return true;
+    }
+    return false;
 }
