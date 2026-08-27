@@ -299,3 +299,11 @@ en `global_settings.tagcache_db_path` desde `metro_apply_hygiene()`,
 que `apps/main.c` ya llama (F1, M-019) entre `settings_load()` e
 `init_tagcache()` — la ventana exacta que necesita. No se tocó
 `apps/main.c` ni `apps/tagcache.c`. Ver `DECISIONS.md` M-095.
+
+### M-097 (2026-08-26)
+
+- `apps/SOURCES`: bloque de F1 extendido con `metro/metro_master_art_format.c`,
+  `metro/metro_master_art.c`, `metro/metro_master_art_builder.c` (la
+  caché maestra compartida de imágenes en `/.aura/art`, contrato v16).
+  Sin cambios a ningún otro archivo de Rockbox fuera de `apps/metro/`.
+  Ver `DECISIONS.md` M-097.
