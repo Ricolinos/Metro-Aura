@@ -49,7 +49,7 @@
 #include "metro_manifest.h"
 #include "metro_transitions.h"
 #include "metro_thumbs.h"
-#include "metro_music.h" /* metro_music_bootstrap_tick() -- M-095 */
+#include "metro_music.h" /* metro_music_db_ready() -- M-098 */
 #include "metro_master_art.h"         /* M-097 */
 #include "metro_master_art_builder.h" /* M-097 */
 #include "metro_screen_photo_viewer.h"
@@ -245,6 +245,7 @@ void metro_main(void)
     long last_player_tick = 0;
     bool index_letter_was_pending = false;
     long last_hub_tick = 0; /* R5-F5 */
+    long last_dbready_tick = 0; /* M-098 */
 
     /* metro_apply_hygiene() already ran inside init() (apps/main.c) --
      * see metro_main.h for why it can't run here, after init() returns. */
@@ -389,7 +390,30 @@ void metro_main(void)
              * forever in METRO_SYNC_POSTPONED. */
             if (metro_sync_job_active())
                 metro_sync_tick();
-            metro_music_bootstrap_tick(); /* M-095: seal after bootstrap rebuild */
+
+            /* M-098: poll from every idle tick, not just Music menu entry
+             * (metro_screen_hub.c's hub_on_select(), case "Musica") -- the
+             * master art builder thread (metro_master_art_builder.c) waits
+             * on tagcache_is_usable() by itself but never calls this, so a
+             * database tagcache marks "not usable" only ever got repaired
+             * if the user happened to open Music first. Same criterion as
+             * Aura's aura_music_db_ready() poll (aura_main.c, D-021): no
+             * lcd_active() gate -- tagcache repair work has to keep going
+             * even with the screen asleep, same as on a real device. Self
+             * -throttled to once a second: the idle branch itself already
+             * runs at the loop's 10-20 Hz input cadence, and nothing here
+             * needs to run that fast (checking tagcache's status is cheap,
+             * but there's no reason to pay it more than once a second).
+             * This also replaces the metro_music_bootstrap_tick() call
+             * that used to live here directly: metro_music_db_ready()
+             * already calls it internally (metro_music.c), with the same
+             * metro_sync_job_active() early-out, so calling both back to
+             * back would just repeat that check for nothing. */
+            if (current_tick - last_dbready_tick >= HZ)
+            {
+                last_dbready_tick = current_tick;
+                metro_music_db_ready();
+            }
 
             /* Now Playing has no input of its own most of the time
              * (elapsed time, the progress bar, and the volume overlay's

@@ -74,6 +74,10 @@ static bool s_bootstrap_sealed = false; /* M-095 */
 static struct { int32_t seek; uint32_t crc; long mtime; } s_art_key_memo[ART_KEY_MEMO_N];
 static int s_art_key_memo_n = 0, s_art_key_memo_ring = 0;
 
+/* Forward decl -- defined below, called from metro_music_db_ready()
+ * above its own definition (M-098: no longer a public function, see
+ * its doc comment further down). */
+static void metro_music_bootstrap_tick(void);
 
 bool metro_music_is_playing(void)
 {
@@ -219,15 +223,25 @@ bool metro_music_db_ready(void)
     return tagcache_is_usable();
 }
 
-void metro_music_bootstrap_tick(void)
+/* M-095 (v15): seals the shared database's stamp once after the
+ * bootstrap rebuild metro_music_db_ready() may have started (or when
+ * the database has no stamp at all). Cheap no-op otherwise. Called
+ * only from metro_music_db_ready() below (M-098) -- it used to be
+ * polled directly from metro_main.c's idle loop as its own public
+ * function, back when metro_music_db_ready() itself was only ever
+ * called from the Music menu's hub_on_select() and so couldn't be
+ * trusted to run on its own every idle tick; now that the idle loop
+ * polls metro_music_db_ready() once a second regardless of which
+ * screen is up (M-098), that call already carries this one along
+ * for free, on the same cadence, with the same metro_sync_job_active()
+ * early-out. */
+static void metro_music_bootstrap_tick(void)
 {
-    /* M-095 (v15): the bootstrap rebuild in metro_music_db_ready()
-     * never goes through metro_sync.c's finish_ok(), so nothing
-     * recorded which library it describes -- and the first firmware
-     * switch rebuilt the (now shared) database again for nothing. Seal
-     * it once, the first time it comes up usable after that rebuild
-     * (polled from metro_main.c's idle loop: the rebuild is async and
-     * the user may never re-enter Music this session). Same for a
+    /* The bootstrap rebuild in metro_music_db_ready() never goes
+     * through metro_sync.c's finish_ok(), so nothing recorded which
+     * library it describes -- and the first firmware switch rebuilt
+     * the (now shared) database again for nothing. Seal it once, the
+     * first time it comes up usable after that rebuild. Same for a
      * database that simply has no stamp yet (migrated from a pre-v12
      * tree, or built by an older build): with no sync marker in play
      * (state IDLE -- a pending job never gets here because db_ready()

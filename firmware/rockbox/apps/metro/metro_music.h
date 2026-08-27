@@ -77,11 +77,6 @@ typedef struct {
  * library..." placeholder page while this returns false. */
 bool metro_music_db_ready(void);
 
-/* M-095: seals the shared database's stamp once after the bootstrap
- * rebuild db_ready() may have started (or when the database has no
- * stamp at all). Cheap no-op otherwise; poll from the idle loop. */
-void metro_music_bootstrap_tick(void);
-
 bool metro_music_is_playing(void);
 
 /* R4/FA-8 (M-071): alterna reproducción/pausa de lo que esté sonando.
