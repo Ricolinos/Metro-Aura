@@ -32,6 +32,7 @@
 #include "settings.h"        /* settings_save() -- M-090 */
 #include "ata_idle_notify.h" /* call_storage_idle_notifys() -- M-090 */
 #include "tagcache.h"        /* tagcache_shutdown() -- M-090 */
+#include "kernel.h"          /* current_tick, HZ, TIME_BEFORE(), sleep() -- M-099 */
 
 #include "metro_settings.h"
 #include "metro_sync.h" /* marcador de sync al cambiar de firmware -- M-090 */
@@ -418,9 +419,20 @@ static void refresh_root_binary(void)
     close(in);
 }
 
+/* moonlit/Metro (M-099): don't cut a tagcache commit mid-write -- see
+ * DECISIONS.md. A reboot while commit_step is nonzero can leave the
+ * SHARED master header's dirty flag stuck, forcing every family to
+ * rebuild from scratch on its next boot even though the data was fine.
+ * 8s is generous for a commit (a full rebuild's index-building phase is
+ * the slow part tagcache_get_commit_step() tracks, and that already
+ * runs in the background well before a user reaches this screen) without
+ * ever blocking the switch indefinitely if tagcache is somehow wedged. */
+#define METRO_SWITCH_COMMIT_WAIT_TICKS (HZ * 8)
+
 bool metro_firmware_switch_to(int i)
 {
     const struct metro_fw_family *sibling = metro_fw_sibling(i);
+    long wait_start;
 
     if (sibling == NULL || !metro_firmware_sibling_installed(i))
         return false;
@@ -430,6 +442,17 @@ bool metro_firmware_switch_to(int i)
     /* 1. todo lo de Metro al disco, AHORA */
     metro_settings_save();
     settings_save();
+
+    /* Wait out any in-flight tagcache commit (bounded) before shutting
+     * tagcache down and rebooting -- see the comment on
+     * METRO_SWITCH_COMMIT_WAIT_TICKS above. If it times out, proceed
+     * anyway: this is a rare race, not worth blocking the switch forever
+     * over. */
+    wait_start = current_tick;
+    while (tagcache_get_commit_step() != 0 &&
+           TIME_BEFORE(current_tick, wait_start + METRO_SWITCH_COMMIT_WAIT_TICKS))
+        sleep(HZ / 10);
+
     tagcache_shutdown();
     call_storage_idle_notifys(true);
 
