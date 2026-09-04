@@ -199,6 +199,14 @@ if [[ -n "$RELEASE_TAG" ]]; then
   echo "$RELEASE_TAG" > "$STAGE/.rockbox/aura/version.txt"
 fi
 
+# Metro (M-108, D-075 de moonlit): `zip -r` AGREGA sobre un zip
+# existente, no lo reemplaza -- un rockbox.zip viejo de un
+# --release-tag anterior en este mismo firmware/dist/ dejaba
+# sobrevivir su .rockbox/aura/version.txt (u otro archivo que ya no
+# está en STAGE) en el paquete de una corrida sin el flag. `rm -f`
+# antes de armar el zip para que el archivo salga completo y solo con
+# lo que STAGE tiene ahora.
+rm -f "$DIST_DIR/rockbox.zip"
 (cd "$STAGE" && zip -qr "$DIST_DIR/rockbox.zip" .rockbox)
 
 echo "==> Copiando MODIFICATIONS.md (asset del Release, cumplimiento GPL §2a)"
