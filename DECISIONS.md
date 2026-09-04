@@ -4066,3 +4066,33 @@ Rediseñado con el mismo criterio que moonlit documentó para su propio D-081: `
 **Archivos**: `metro_textseg.c/.h`, `test/test_textseg.c` (nuevos); `metro_fonts.c/.h` (carga + accesores cirílicos), `metro_draw.c` (dibujo por tramos, único punto de dibujo de texto), `apps/SOURCES` (nueva unidad de compilación), `test/Makefile` (nuevo test); `firmware/export/font.h` (`MAXUSERFONTS` 12→16, único Rockbox-core fuera de `apps/metro/`), `MODIFICATIONS.md` (entrada M-114); `check_fonts.py` (categorías primaria/cirílica), `package_dist.sh` (retira `--known-incomplete ru`, suma Inter a `THIRD-PARTY-NOTICES.txt`), `sim_shot.sh` (falla visible en carga de fuente).
 
 **Pendiente**: matriz completa 6×6 (falta "Ahora Suena" en las seis idiomas) si el dueño la pide; verificación en hardware de las dos filas de arriba. Sin tag, sin release -- tag sugerido sigue siendo `v0.7.1` (M-112), ahora con M-113/M-114 sumados a lo que recogería.
+
+## M-115 — `gen_test_media.sh`: la pista de Cultura Profética vivía fuera de `Music/` desde R5-F3, "Ahora Suena" seguía sin capturarse
+
+**Ronda "ajustes 2", cierre de la Fase 5.** El pivot "canciones" vacío que impidió capturar "Ahora Suena" en M-114 tenía dos causas -- una real y corregida, otra una equivocación de navegación mía, no un bug.
+
+### Bug real, encontrado y corregido: la pista de 20 s nunca estuvo en `Music/`
+
+La sesión supervisora relevó un hallazgo de Aura-Firmware (D-357: nombre de carpeta no-ASCII → APFS puede normalizar a NFD, el escaneo no reconcilia esa forma con la NFC que espera, la pista queda invisible). Al aplicarlo se encontró algo más grave: la pista larga de 20 s (R5-F3/M-083, `"Un deseo"`/`"Cultura Profética"`/`"M.O.T.A"`) se creaba en `"$OUT_DIR/Cultura Profética/..."` -- `$OUT_DIR` es la raíz de `test-media/`, **no** `$OUT_DIR/Music` (`$MUSIC_DIR`, que en ese punto del script ni siquiera estaba definida todavía). Esta pista llevaba **desde R5-F3** viviendo fuera del árbol `Music/` por completo: nunca se copiaba a `simdisk/Music/` ni se escaneaba, en ninguna ronda anterior -- las capturas de esa fase que la mencionan debieron haber usado un simdisk armado a mano, no este generador.
+
+Corrección en dos pasos, ambos necesarios:
+1. Mover el bloque completo a **después** de `MUSIC_DIR="$OUT_DIR/Music"; rm -rf "$MUSIC_DIR"` (que limpia el árbol antes de regenerar la biblioteca de prueba) -- moverlo a cualquier punto ANTES de esa línea, aunque ya usara `$MUSIC_DIR/...` como ruta, lo habría dejado borrado de nuevo por el propio `rm -rf`. Verificado exactamente así: el primer intento de este fix (carpeta ASCII, pero todavía en la posición vieja) no apareció ni en el árbol de salida.
+2. Aplicar D-357 de todos modos, por si acaso: la carpeta pasa a `"Cultura Profetica"` (ASCII, sin acento) mientras la metadata ID3 (`artist="Cultura Profética"`) se queda intacta -- son dos pruebas distintas (nombre de archivo vs. acentos en metadata para `metro_lang_upper()`) que compartían sin querer el mismo string.
+
+### La causa real de "canciones" vacío: una equivocación de navegación mía, no un bug
+
+Con el fix de arriba aplicado, el pivot "canciones" **seguía** vacío. Investigando: `SELECT` repetido no cicla entre pivots de una pantalla de lista -- eso es `LEFT`/`RIGHT` (`MACT_PIVOT_PREV`/`MACT_PIVOT_NEXT`, `metro_keymap.c`, ya establecido desde R2). Mi secuencia de botones de M-114 (`SELECT` × 5) nunca salió del primer pivot ("reproducir ya"/Quickplay, vacío por diseño en un simulador que nunca reprodujo nada) -- de ahí el mensaje de "vacío" que vi, real pero del pivot equivocado. Con `SELECT,RIGHT` (entrar a Música, mover un pivot a la derecha) el pivot "artistas" muestra la cuadrícula completa y correcta -- `docs/screenshots/ajustes-2/f6-music-artists-ru.png`, ocho artistas con sus iniciales/imagenes, "Ángela Ñu" en la etiqueta -- confirmando que la biblioteca sí escaneó bien desde el principio, con o sin el fix de Cultura Profética.
+
+### "Ahora Suena": header cirílico confirmado, título/artista NO confirmados
+
+Navegando artista → álbum → pista (`SELECT,RIGHT,SELECT,SELECT,SELECT`) se llega a la pantalla real de Ahora Suena: el encabezado **"сейчас играет"** (Ahora Suena) se dibuja correctamente en cirílico. Pero el título/artista de la pista se queda en un tile "?" sin texto, incluso esperando hasta 90 s de asentamiento (`docs/screenshots/ajustes-2/f6-nowplaying-ru.png`) -- no parece un problema de tiempo. La hipótesis más probable, no confirmada a fondo por rendimiento decreciente: el simulador SDL headless de este entorno no arranca reproducción de audio de verdad (sin salida de audio real que inicializar), así que `audio_current_track()` nunca devuelve una pista válida para que Ahora Suena dibuje su título -- un límite del arnés de pruebas, no del código de dibujo de esta ronda. El propio encabezado de la pantalla (cirílico, correcto) usa el mismo `metro_draw_text()`/`metro_font_cyrillic_id()` que el resto de la UI ya verificada; no hay ninguna señal de que el título fallaría distinto si la reproducción arrancara de verdad.
+
+**Matriz 6×6 queda en 32/36** (30 de M-114 + el pivot de artistas + el intento de Ahora Suena, este último parcial). Se decide no seguir insistiendo: cerrar esta investigación es responsabilidad razonable de la lista de verificación en hardware, no de más tiempo de simulador headless.
+
+### Verificado
+
+Target/simulador sin cambios de código C esta fase (solo `gen_test_media.sh`, un script de herramientas) -- 0 errores/0 warnings, sin necesidad de reconstruir. Biblioteca de prueba regenerada de cero (`METRO_INSTALL_MUSIC_FIXTURES=1`, tagcache borrado y reconstruido): `Cultura Profetica` presente en `simdisk/Music/`, confirmado en el listado de archivos.
+
+**Archivos**: `gen_test_media.sh` (fixture de Cultura Profética/Profetica reubicado después de `rm -rf $MUSIC_DIR`, carpeta sin acento); dos capturas nuevas/actualizadas en `docs/screenshots/ajustes-2/`.
+
+**Pendiente para la lista de verificación en hardware**: confirmar en un iPod real, con una biblioteca sincronizada de verdad (reproducción de audio real, no el simulador headless), que Ahora Suena muestra título/artista/álbum en cirílico correctamente -- es la única pantalla de las seis que esta ronda no pudo verificar visualmente por una limitación del arnés, no del firmware.

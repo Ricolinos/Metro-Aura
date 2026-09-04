@@ -81,20 +81,6 @@ ffmpeg -y -loglevel error \
   -metadata album="Album sin portada" \
   -c:a libmp3lame -b:a 128k "$OUT_DIR/SinArte/metro-test-noart.mp3"
 
-# R5-F3 (M-083): una pista LARGA (20 s). Todo lo demás dura <= 3 s, y eso
-# no alcanza para verificar nada temporizado en el reproductor: el nivel
-# de volumen se queda 3 s y se desvanece durante 1 s más -- con las
-# pistas cortas la canción se acababa antes que el fundido y la captura
-# mostraba la pantalla de "nada sonando", no el fundido. Artista/álbum
-# con acentos a propósito (ejercitan metro_lang_upper en la línea de
-# artista en versalitas).
-mkdir -p "$OUT_DIR/Cultura Profética/M.O.T.A"
-ffmpeg -y -loglevel error \
-  -f lavfi -i "sine=frequency=220:duration=20" \
-  -metadata title="Un deseo" -metadata artist="Cultura Profética" \
-  -metadata album="M.O.T.A" \
-  -c:a libmp3lame -b:a 128k "$OUT_DIR/Cultura Profética/M.O.T.A/01 Un deseo.mp3"
-
 echo "==> Generando $OUT_DIR/cover.jpg"
 gen_cover_jpg "0x3366CC" "200x200" "$OUT_DIR/cover.jpg"
 
@@ -342,6 +328,45 @@ ffmpeg -y -loglevel error -f lavfi -i "sine=frequency=430:duration=2" \
   -metadata album_artist="Пётр Чайковский" -metadata album="Времена года" \
   -metadata genre="Classical" -metadata track=1 \
   -c:a libmp3lame -b:a 96k "$MUSIC_DIR/Chaykovskiy/01 Utro v Moskve.mp3"
+
+# R5-F3 (M-083): una pista LARGA (20 s). Todo lo demás dura <= 3 s, y eso
+# no alcanza para verificar nada temporizado en el reproductor: el nivel
+# de volumen se queda 3 s y se desvanece durante 1 s más -- con las
+# pistas cortas la canción se acababa antes que el fundido y la captura
+# mostraba la pantalla de "nada sonando", no el fundido. Artista/álbum
+# con acentos a propósito (ejercitan metro_lang_upper en la línea de
+# artista en versalitas).
+#
+# M-115 (ronda "ajustes 2"): dos bugs reales encontrados juntos al
+# investigar por qué el pivot "canciones" del simulador aparecía vacío
+# pese a que la base de tagcache sí se construía.
+#
+# 1. Esta pista vivía en "$OUT_DIR/Cultura Profética/..." -- ANTES de
+#    que "$MUSIC_DIR" existiera como variable, y sobre todo ANTES del
+#    "rm -rf $MUSIC_DIR" (unas líneas arriba de este comentario, al
+#    definir $MUSIC_DIR) que limpia el árbol antes de regenerar la
+#    biblioteca de prueba. Estaba fuera de Music/ por completo -- nunca
+#    se copiaba a simdisk/Music/ ni se escaneaba, en ninguna ronda
+#    desde R5-F3 (M-083). Moverla aquí, DESPUÉS del `rm -rf`, es lo que
+#    la deja sobrevivir: moverla a cualquier punto ANTES de esa línea
+#    (incluido "$MUSIC_DIR/Cultura Profetica/...") la habría dejado
+#    borrada de nuevo por el propio `rm -rf`, que es exactamente lo que
+#    pasó en el primer intento de este mismo hallazgo.
+# 2. Hallazgo de Aura-Firmware (D-357), aplicado por si acaso: la
+#    CARPETA va sin acento ("Cultura Profetica", ASCII) aunque el
+#    ARTISTA en las etiquetas ID3 sí lo lleve ("Cultura Profética") --
+#    son dos pruebas distintas (nombre de archivo vs. metadata) que
+#    compartían sin querer el mismo string. APFS puede normalizar a
+#    NFD un nombre de directorio no-ASCII al crearlo, y el escaneo del
+#    simulador no siempre reconcilia esa forma con la NFC que espera.
+#    El acento de la carpeta nunca fue parte de lo que este fixture
+#    pretendía probar (eso es la metadata, sin tocar).
+mkdir -p "$MUSIC_DIR/Cultura Profetica/M.O.T.A"
+ffmpeg -y -loglevel error \
+  -f lavfi -i "sine=frequency=220:duration=20" \
+  -metadata title="Un deseo" -metadata artist="Cultura Profética" \
+  -metadata album="M.O.T.A" \
+  -c:a libmp3lame -b:a 128k "$MUSIC_DIR/Cultura Profetica/M.O.T.A/01 Un deseo.mp3"
 
 echo "==> Generando residuales de macOS de prueba (AppleDouble)"
 printf '\x00\x05\x16\x07appledouble de prueba' > "$OUT_DIR/Photos/._diagram.jpg"
