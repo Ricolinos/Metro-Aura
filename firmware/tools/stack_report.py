@@ -101,18 +101,20 @@ FAULT_HANDLERS = (
 # sin explicacion. Si alguna deja de ser cierta, el numero del reporte
 # se vuelve optimista: revisar al tocar cualquiera de los dos extremos.
 GUARDED_EDGES = {
-    # M-101: VACIA a proposito en Metro-Aura. Aura-Firmware corta aqui
-    # ("skin_get_gwps" -> "skin_load") porque D-345 hizo que
-    # settings_apply_skins() no cargue skins. Metro NO porto ese cambio:
-    # medido con esta misma herramienta, su camino de skins cuesta
-    # 5 136 B desde skin_get_gwps (5 296 B desde settings_apply_skins) y
-    # NO es el peor camino del binario -- el peor nace en
-    # metro_music.c/tagcache. Tocar el motor de skins de Rockbox para
-    # ganar un camino que ya cabe seria riesgo sin beneficio; se
-    # reevalua si el peor camino se acerca al tope. Cualquier arista que
-    # se agregue aqui se imprime en el reporte con su motivo, para que
-    # la exclusion sea auditable y no un numero que baja sin
-    # explicacion.
+    # Aristas que existen en el binario pero que una GUARDA DE EJECUCION
+    # vuelve inalcanzables. El desensamblado no puede verlas: la guarda
+    # es una variable, no una constante de compilacion. Cada una se
+    # imprime en el reporte con su motivo, para que la exclusion sea
+    # auditable y no un numero que baja sin explicacion.
+    ("skin_get_gwps", "skin_load"):
+        "M-101 (mismo cambio, mismo archivo y misma razon que D-345 en "
+        "Aura-Firmware): settings_apply_skins() ya no carga skins "
+        "(apps/gui/skin_engine/skin_engine.c), asi que skins_initialised "
+        "queda en false y skin_get_gwps() sale temprano para "
+        "CUSTOM_STATUSBAR -- la unica pantalla skinneable a la que Metro "
+        "puede llegar. WPS y FM_SCREEN son pantallas de Rockbox que "
+        "Metro reemplazo (M-006, y el CLAUDE.md del repo prohibe el skin "
+        "engine para cualquier pantalla propia) y nunca muestra.",
 }
 
 FN_RE = re.compile(r"^[0-9a-f]+ <(.+)>:")

@@ -180,19 +180,39 @@ void settings_apply_skins(void)
                 skin_reset_buffers(i, j);
         }
     }
-    skins_initialised = true;
-
-    /* Make sure each skin is loaded */
-    for (i=0; i<SKINNABLE_SCREENS_COUNT; i++)
-    {
-        FOR_NB_SCREENS(j)
-        {
-            gui_skin_reset(&skins[i][j]);
-            skins[i][j].gui_wps.display = &screens[j];
-            if (skin_helpers[i]->load_on_boot)
-                skin_get_gwps(i, j);
-        }
-    }
+    /* Metro (M-101): Metro NO usa el motor de skins -- dibuja su propia
+     * barra de estado (metro_draw_header(), apps/metro/metro_draw.c) y
+     * su propio "Ahora suena" (metro_screen_nowplaying.c), y ningun
+     * tema de Metro es un .wps/.sbs; el CLAUDE.md de este repo prohibe
+     * explicitamente el skin engine para cualquier pantalla propia
+     * (M-006). Cargar los skins por defecto aqui mete en el hilo de UI
+     * el subarbol skin_data_load (848 B) -> font_load_ex ->
+     * glyph_cache_load (2 088 B) -> apertura de archivo -> ATA, que
+     * medido con firmware/tools/stack_report.py cuesta 5 136 B desde
+     * skin_get_gwps() y era la cola del peor camino de pila del
+     * binario. No entra solo al arrancar: cualquier camino de UI que
+     * llame sb_get_backdrop()/sb_skin_update() pasa por
+     * skin_get_gwps(CUSTOM_STATUSBAR, ...), que carga en diferido
+     * mientras skins_initialised sea true.
+     *
+     * Dejando skins_initialised en false, skin_get_gwps() devuelve de
+     * inmediato para CUSTOM_STATUSBAR -- la unica pantalla skinneable
+     * a la que Metro puede llegar -- y todo ese subarbol desaparece del
+     * hilo de UI. Los consumidores ya toleran ese estado porque es el
+     * mismo en el que corre Rockbox ANTES de este init: gui_wps.data
+     * apunta a memoria valida desde gui_sync_skin_init() (apps/main.c,
+     * que corre antes que esta funcion), sb_get_backdrop() devuelve -1
+     * (data->wps_loaded en false) y skin_backdrop_show(-1) esta
+     * contemplado; sb_skin_update() y sb_skin_get_info_vp() salen
+     * temprano por sbs_loaded == false.
+     *
+     * Se conserva todo lo demas de esta funcion (init de backdrops,
+     * recarga del ajuste de backdrop y el aviso THEME_STATUSBAR): solo
+     * se salta la carga de skins. Mismo cambio, mismo archivo y misma
+     * razon que D-345 en Aura-Firmware y su equivalente en
+     * moonlit.aura: los tres arboles divergen de Rockbox base en los
+     * mismos puntos, para que una auditoria GPL o un merge futuro sea
+     * uno solo. Ver MODIFICATIONS.md. */
 
     /* any backdrop that was loaded with "-" has to be reloaded because
      * the setting may have changed */

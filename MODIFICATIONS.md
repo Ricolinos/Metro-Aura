@@ -342,6 +342,25 @@ que `apps/main.c` ya llama (F1, M-019) entre `settings_load()` e
   `firmware/tools/stack_report.py`. Sin efecto sobre el binario: solo
   cambia la pasada de dependencias.
 
+- `apps/gui/skin_engine/skin_engine.c` (M-101, segundo addendum):
+  `settings_apply_skins()` deja de cargar los skins — se elimina el
+  `skins_initialised = true` y el bucle `skin_get_gwps()` que lo seguía;
+  todo lo demás de la función (init de backdrops, recarga del ajuste de
+  backdrop, aviso `THEME_STATUSBAR`) queda intacto. Comentario inline
+  `Metro (M-101)` en el punto exacto. **Metro no usa el motor de skins**:
+  dibuja su propia barra de estado (`metro_draw_header()`) y su propio
+  "Ahora suena", ningún tema de Metro es un `.wps`/`.sbs`, y el
+  `CLAUDE.md` de este repo lo prohíbe explícitamente para cualquier
+  pantalla propia (M-006). Con `skins_initialised` en false,
+  `skin_get_gwps()` sale de inmediato para `CUSTOM_STATUSBAR` — la única
+  pantalla skinneable a la que Metro puede llegar — y con eso desaparece
+  del hilo de UI el subárbol `skin_data_load` → `font_load_ex` →
+  `glyph_cache_load` → apertura de archivo → ATA, que medido con
+  `firmware/tools/stack_report.py` costaba **5 136 B** y era la cola del
+  peor camino de pila. Mismo cambio, mismo archivo y misma razón que
+  D-345 en Aura-Firmware y su equivalente en moonlit.aura: los tres
+  árboles divergen de Rockbox base en los mismos puntos, para que una
+  auditoría GPL o un merge futuro sea uno solo.
 - `uisimulator/common/sim_tasks.c` (M-101): sufijo `+HOLD` en
   `METRO_SIM_BUTTONS` — ver la sección "Excepción" de este archivo, donde
   ya vive el registro de los cambios de este archivo de automatización.

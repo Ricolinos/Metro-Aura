@@ -3267,6 +3267,25 @@ El peor camino baja poco porque **ya casi no lo domina código de Metro**: tras 
 
 `package_dist.sh` queda **funcional** durante toda la ronda: el reporte pasa.
 
+**SEGUNDO ADDENDUM: el motor de skins de Rockbox se apaga, por consistencia entre las tres familias.**
+
+Tras el primer addendum la cola del peor camino era Rockbox, no Metro: 5 136 B del motor de skins. El criterio acordado para portar el cambio de D-345 era que ese camino superara 6 KB, y no lo superaba — así que se dejó. La supervisora **cambió el criterio** y pidió portarlo igual, con un motivo que no es el umbral: **Aura y moonlit ya llevan el mismo cambio en el mismo archivo, y los tres árboles deben divergir de Rockbox base en los mismos puntos** para que una auditoría GPL o un merge futuro sea uno solo. Además hoy era el cuello de botella y la guarda es de runtime.
+
+`settings_apply_skins()` (`apps/gui/skin_engine/skin_engine.c`) deja de cargar skins: se elimina el `skins_initialised = true` y el bucle `skin_get_gwps()` que lo seguía. Todo lo demás de la función queda intacto (init de backdrops, recarga del ajuste de backdrop, aviso `THEME_STATUSBAR`). Es seguro porque **Metro no usa el motor de skins en absoluto** — barra de estado propia (`metro_draw_header()`), "Ahora suena" propio, ningún tema es un `.wps`/`.sbs`, y el `CLAUDE.md` del repo lo prohíbe para cualquier pantalla propia (M-006) — y porque los consumidores ya toleran ese estado: es el mismo en el que corre Rockbox **antes** de este init. `gui_wps.data` apunta a memoria válida desde `gui_sync_skin_init()` (que corre antes), `sb_get_backdrop()` devuelve −1 con `wps_loaded` en false y `skin_backdrop_show(-1)` está contemplado, y `sb_skin_update()`/`sb_skin_get_info_vp()` salen temprano con `sbs_loaded == false`. Registro en `MODIFICATIONS.md`, marca inline `Metro (M-101)`.
+
+La arista `skin_get_gwps → skin_load` vuelve a `GUARDED_EDGES` de `stack_report.py` **con su motivo escrito**, que ahora es cierto: la guarda existe.
+
+| | tras el 1.er addendum | tras el 2.º |
+|---|---|---|
+| Peor camino desde `main` | 7 240 B (58,9 %) | **4 848 B (39,5 %)** |
+| Peor camino desde `metro_main` | 7 144 B (58,1 %) | **4 752 B (38,7 %)** |
+
+**Verificado en el simulador que apagar los skins no rompe nada de lo que sí se ve:**
+- **Pantalla USB propia** (M-088/M-089): se dibuja completa —wordmark, glifo de sincronización antialiaseado y el indicador de puntos— `docs/screenshots/ronda-homologacion/f1-usb.png`.
+- **Retorno de `imageviewer`**: abrir una foto a pantalla completa y volver deja la cuadrícula con su ceja, su barra de estado, el marco de selección y el rótulo del archivo intactos (`f1-fotos-visor.png`, `f1-fotos-volver.png`).
+- **Retorno de `mpegplayer`**: el clip corre hasta el final y devuelve a la lista de videos con ceja, barra y selección intactas (`f1-video-volver.png`); el menú propio del plugin ("reproductor de video" → Ajustes/Salir) también se dibuja bien.
+- El **USB real** (montaje, escritura desde el Mac) va a la lista de verificación en hardware: el simulador no lo ejerce.
+
 **Lo que quedaba ROJO antes del addendum.** `stack_report.py` salía con **FALLA (a)**: nueve funciones de `apps/metro/` superan el tope de 1 024 B de marco — `run_search` (1 592), `metro_music_album_key_for_track` (1 312), `metro_music_album_seeks` (1 288), `import_ratings` (1 272), `metro_music_album_art_key` (1 120), `metro_music_recent_albums` (1 112), `insert_matching_tracks` (1 104), `metro_thumbs_tick` (1 064), `write_marker` (1 040). Todas son el mismo patrón: `struct tagcache_search` (~800 B por sí sola: `seeklist[32]`, `idxfd[TAG_COUNT]`, `clause[32]`) más un `char path[MAX_PATH]` o un `buf[TAGCACHE_BUFSZ]` en la pila. **No es un descubrimiento incidental: es el primer resultado real de la herramienta**, y esas mismas funciones son ~4 KB de los 7 400 B del peor camino. Bajarlas a estáticos es seguro (las cinco de `metro_music.c` ya corren bajo el mutex único de M-097) pero toca cinco archivos y merece su propia pasada de verificación: el plan lo agendaba en la Fase 6 ("`stack_report.py` en verde"), y **la supervisora pidió adelantarlo a esta misma sesión** para no dejar `package_dist.sh` abortando durante toda la ronda. Ver el ADDENDUM de arriba.
 
 ## M-102 — Versión de formato de caché (`/.aura/art/format.txt`) y clave de álbum con el mtime de `cover.jpg` (contrato v18)
