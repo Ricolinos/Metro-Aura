@@ -4085,6 +4085,10 @@ Con el fix de arriba aplicado, el pivot "canciones" **seguía** vacío. Investig
 
 ### "Ahora Suena": header cirílico confirmado, título/artista NO confirmados
 
+> **ANULADA por M-116.** La causa era `simdisk/Music/` vacío (fixtures no
+> instalados), no un límite del arnés: reinstalando la biblioteca, Ahora Suena
+> dibuja título/artista/álbum en los seis idiomas. Ver M-116.
+
 Navegando artista → álbum → pista (`SELECT,RIGHT,SELECT,SELECT,SELECT`) se llega a la pantalla real de Ahora Suena: el encabezado **"сейчас играет"** (Ahora Suena) se dibuja correctamente en cirílico. Pero el título/artista de la pista se queda en un tile "?" sin texto, incluso esperando hasta 90 s de asentamiento (`docs/screenshots/ajustes-2/f6-nowplaying-ru.png`) -- no parece un problema de tiempo. La hipótesis más probable, no confirmada a fondo por rendimiento decreciente: el simulador SDL headless de este entorno no arranca reproducción de audio de verdad (sin salida de audio real que inicializar), así que `audio_current_track()` nunca devuelve una pista válida para que Ahora Suena dibuje su título -- un límite del arnés de pruebas, no del código de dibujo de esta ronda. El propio encabezado de la pantalla (cirílico, correcto) usa el mismo `metro_draw_text()`/`metro_font_cyrillic_id()` que el resto de la UI ya verificada; no hay ninguna señal de que el título fallaría distinto si la reproducción arrancara de verdad.
 
 **Matriz 6×6 queda en 32/36** (30 de M-114 + el pivot de artistas + el intento de Ahora Suena, este último parcial). Se decide no seguir insistiendo: cerrar esta investigación es responsabilidad razonable de la lista de verificación en hardware, no de más tiempo de simulador headless.
@@ -4096,3 +4100,47 @@ Target/simulador sin cambios de código C esta fase (solo `gen_test_media.sh`, u
 **Archivos**: `gen_test_media.sh` (fixture de Cultura Profética/Profetica reubicado después de `rm -rf $MUSIC_DIR`, carpeta sin acento); dos capturas nuevas/actualizadas en `docs/screenshots/ajustes-2/`.
 
 **Pendiente para la lista de verificación en hardware**: confirmar en un iPod real, con una biblioteca sincronizada de verdad (reproducción de audio real, no el simulador headless), que Ahora Suena muestra título/artista/álbum en cirílico correctamente -- es la única pantalla de las seis que esta ronda no pudo verificar visualmente por una limitación del arnés, no del firmware.
+
+## M-116 — La hipótesis del "límite del arnés" era falsa: la biblioteca estaba vacía, y las iniciales cirílicas de los tiles sí tenían un bug
+
+La supervisora rechazó, con razón, la conclusión de M-115 ("el simulador headless no reproduce audio, por eso Ahora Suena sale sin título"): Aura-Firmware capturó Ahora Suena con título cirílico en su propio simulador headless (D-357), y este repo ya había capturado Ahora Suena con título en rondas anteriores (M-083, R5). El arnés sí reproduce. Se rehízo el diagnóstico en el orden que ella indicó.
+
+### Causa real del "?" en Ahora Suena: `simdisk/Music/` estaba vacío
+
+`find simdisk/Music -name '*.mp3'` devolvía **0 archivos**: el árbol existía pero sin una sola pista. La última regeneración de M-115 corrió sin `METRO_INSTALL_MUSIC_FIXTURES=1`, y ese gate (`gen_test_media.sh`, paso de instalación) es lo único que copia `Music/`, `Playlists/` y `SinArte/` al simdisk. El único artista que aparecía ("Metro QA") venía del tagcache viejo, ya obsoleto respecto al disco.
+
+Con la biblioteca vacía, `audio_current_track()` no devuelve nada y `metro_screen_nowplaying.c` dibuja su propio marcador de posición literal -- `metro_draw_tile(..., "?")`, y `id3->title ? id3->title : "?"`. El "?" que M-115 leyó como fallo de dibujo era **la pantalla funcionando exactamente como está escrita** ante una biblioteca vacía. La hipótesis del arnés fue una explicación inventada para un síntoma que nunca se instrumentó.
+
+Reinstalando fixtures (`METRO_INSTALL_MUSIC_FIXTURES=1`, 21 pistas), borrando el tagcache y dejando indexar de verdad (una pasada larga dedicada; el tagcache se commitea a disco y persiste entre corridas, así que la navegación puede ir en una segunda corrida corta) la cuadrícula de artistas sale completa y Ahora Suena dibuja todo.
+
+### (1) Pista ASCII, idioma `es`: título y artista SÍ se dibujan
+
+`docs/screenshots/ajustes-2/f6-nowplaying-es.png`: artista `CULTURA PROFÉTICA`, álbum `M.O.T.A`, título `Un deseo`, progreso `0:03 / 0:20`. **No hay regresión de M-114**: el dibujo por tramos de `metro_draw_text()`/`metro_draw_text_cut_right()`/`metro_draw_text_width()` no devuelve 0 ni recorta nada.
+
+Un falso positivo que conviene dejar anotado: una captura intermedia mostró la línea de artista como `TICA    CULTURA P`, que parece texto corrupto o tramos dibujados fuera de orden. No lo es -- es `metro_marquee_draw()` (M-106) a mitad de su ciclo, que dibuja la cola y la cabeza con su hueco para que el desplazamiento sea continuo. Capturando la misma pantalla en otra fase (`tick` distinto) la misma línea lee `A PROFÉTICA   CU`. **Una sola captura de una línea con marquesina no dice nada; hay que comparar dos fases antes de llamarlo bug.**
+
+### (3) Bug real, pero en otro lado: `metro_draw_tile()` no pasaba por el dibujo por tramos
+
+La respuesta a (1) fue "sí", así que el paso (3) de la supervisora (revisar la ruta de fuentes cirílicas por rol) no aplicaba a Ahora Suena. Pero al recorrer la cuadrícula de artistas en ruso apareció un bug de verdad, no pedido: los tiles de `Пётр Чайковский` y `неизвестный исполнитель` mostraban la inicial como **`?`**, mientras su rótulo de abajo (cirílico, correcto) se veía bien.
+
+Causa: `metro_draw_tile()` (`metro_draw.c`) resolvía bien la inicial UTF-8 multi-byte (M-076 ya lo había arreglado) pero luego la dibujaba con `lcd_setfont(metro_font_id(MFONT_DISPLAY))` + `lcd_putsxy()` **a pelo**, saltándose por completo la selección de fuente por tramos de M-114. Cae en Selawik, que no tiene cirílico, y sale el glifo por defecto. Es exactamente el mismo tipo de sitio que M-114 tenía que haber convertido y no convirtió: un `lcd_putsxy()` suelto fuera de `metro_draw_text()`.
+
+Corrección: construir los tramos con el mismo `build_segs()`/`seg_font_id()` internos, medir con la fuente del tramo (importa para centrar: la cirílica de `MFONT_DISPLAY` cae a la de `title`, M-113, y no mide lo mismo que `display-48`) y dibujar con `metro_draw_text()`. Antes/después: `m116-tile-cyrillic-before.png` (`?`) → `m116-tile-cyrillic-after.png` (`п`, `н`).
+
+Consecuencia visible y aceptada: las iniciales cirílicas de los tiles salen a `title-28`, más pequeñas que las latinas a `display-48`. Es el costo documentado de M-113 (`MFONT_DISPLAY` se quedó sin fuente cirílica propia para no pagar su RAM), no un defecto nuevo. Las iniciales latinas siguen en `display-48` sin cambio -- visible en la misma captura alemana, con `Á`, `C`, `F`, `K` a tamaño completo.
+
+### Matriz 6×6 cerrada
+
+- `f6-nowplaying-es.png` -- pista ASCII, marquesina de artista, 0:20.
+- `f6-nowplaying-ru.png` -- `ПЁТР ЧАЙКОВСК…` / `Времена года` / `Утро в Москве`, encabezado `сейчас играет`. El `Ё` mayúsculo confirma en pantalla el intercambio de byte líder de `metro_lang_upper()`.
+- `f6-nowplaying-de.png` -- `KÄTHE MÜLLER` / `Glückspilz` / `Straße der Größe`, encabezado `läuft gerade`.
+
+Detalle de captura que costó dos intentos: las pistas de los fixtures ruso y alemán duran **2 segundos**. Con los ~420 ticks (≈4.2 s, HZ=100) que servían para la pista de 20 s, la reproducción ya había terminado y Ahora Suena volvía a su estado vacío -- el mismo "?" de arriba, otra vez confundible con un fallo de dibujo. Se capturan a ~100 ticks.
+
+### Verificado
+
+Simulador reconstruido, 0 errores. Suite host completa en verde, incluido `test_textseg` (34/34) y `test_marquee` (591/591). Las cuatro fuentes cirílicas siguen cargando (ninguna captura disparó el `grep "failed to load"` de `sim_shot.sh`).
+
+**Archivos**: `metro_draw.c` (`metro_draw_tile()` por tramos). Ningún archivo de Rockbox fuera de `apps/metro/` -- sin entrada nueva en `MODIFICATIONS.md`.
+
+**Corrección a M-115**: su sección "Ahora Suena: header cirílico confirmado, título/artista NO confirmados" queda anulada por esta entrada; no hay límite del arnés, no hay pendiente de hardware por ese motivo, y la matriz 6×6 queda en 36/36.

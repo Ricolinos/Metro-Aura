@@ -455,11 +455,27 @@ void metro_draw_tile(int x, int y, int size, const char *label)
      * of blank pixels. */
     if (initial[0] != ' ')
     {
-        lcd_setfont(metro_font_id(MFONT_DISPLAY));
-        lcd_getstringsize((const unsigned char *)initial, &w, &h);
-        lcd_set_foreground(metro_color_bg());
-        lcd_set_drawmode(DRMODE_FG); /* M-051 -- see metro_draw_text() */
-        lcd_putsxy(x + (size - w) / 2, y + (size - h) / 2, (const unsigned char *)initial);
+        /* M-116: la inicial puede ser cirílica ("Пётр Чайковский" ->
+         * "П"), así que se mide y se dibuja por la misma selección de
+         * fuente por tramos que metro_draw_text() (M-114). Con
+         * lcd_setfont(metro_font_id(MFONT_DISPLAY)) a secas caía en
+         * Selawik, que no tiene cirílico, y el tile salía con el glifo
+         * por defecto ("?") mientras su rótulo -- que sí pasa por
+         * metro_draw_text() -- se veía bien. */
+        struct metro_textseg segs[METRO_TEXTSEG_MAX];
+        int n = build_segs(MFONT_DISPLAY, initial, segs);
+
+        if (n > 0)
+        {
+            /* La inicial es un solo carácter: un solo tramo, y su
+             * fuente es la que da el alto correcto para centrar (la
+             * cirílica de MFONT_DISPLAY cae a la de title, M-113, y no
+             * mide lo mismo que display-48). */
+            lcd_setfont(seg_font_id(MFONT_DISPLAY, &segs[0]));
+            lcd_getstringsize((const unsigned char *)segs[0].text, &w, &h);
+            metro_draw_text(MFONT_DISPLAY, x + (size - w) / 2,
+                            y + (size - h) / 2, initial, metro_color_bg());
+        }
     }
 }
 
