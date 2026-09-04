@@ -56,6 +56,18 @@ bool metro_screen_photo_viewer_is_current(void);
 
 void metro_screen_photo_viewer_show(void);
 
+/* M-109 (ronda "ajustes 2", plan maestro SS C.2): true mientras el
+ * visor siga en su ventana de "quietud" de 150 ms tras el último
+ * cambio de foto, o justo una vuelta más allá de eso (el decode real
+ * todavía no ocurrió). metro_main.c la usa para bajar su espera de
+ * entrada a HZ/20 -- igual que ya hace por el hub y la marquesina
+ * (metro_screen_hub_wants_ticks()/metro_marquee_wants_ticks()) -- y
+ * para saber cuándo volver a redibujar el visor sin que llegue ningún
+ * botón nuevo, que es como el debounce de verdad termina de vencer si
+ * el usuario deja de tocar la rueda. Se apaga sola apenas la foto
+ * asentada queda decodificada. */
+bool metro_screen_photo_viewer_wants_ticks(void);
+
 /* M-106: direccion del deslizamiento que dejo pendiente el ultimo
  * cambio de foto (+1 siguiente, -1 anterior, 0 ninguno) -- se CONSUME
  * al leerla.

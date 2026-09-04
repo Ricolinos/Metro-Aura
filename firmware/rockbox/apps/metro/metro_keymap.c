@@ -102,6 +102,23 @@ static const struct button_mapping player_mapping[] = {
 static const struct button_mapping viewer_mapping[] = {
     { MACT_PREV,             BUTTON_SCROLL_BACK,        BUTTON_NONE },
     { MACT_NEXT,             BUTTON_SCROLL_FWD,          BUTTON_NONE },
+    /* M-109 (ronda "ajustes 2", plan maestro SS C.4): la fila de
+     * REPEAT que faltaba -- ver metro_keymap.h y DECISIONS.md M-109
+     * para el diagnostico completo. `firmware/drivers/button.c` marca
+     * BUTTON_REPEAT en CUALQUIER codigo que el driver siga reportando
+     * igual entre sondeos (REPEAT_START = 300 ms), y el driver de la
+     * rueda de clic (button-clickwheel.c) reporta el MISMO
+     * wheel_keycode mientras la rueda sigue girando en la misma
+     * direccion -- un giro continuo se ve, para el driver, identico a
+     * un boton sostenido. Sin esta fila, `action_code_worker()`
+     * (apps/action.c) no encuentra el codigo con el bit REPEAT puesto
+     * y, como esta tabla termina en LAST_ITEM_IN_LIST (no la variante
+     * __NEXTLIST), la accion resuelve en MACT_NONE y se descarta en
+     * silencio -- exactamente lo que ya hace list_mapping[] con su
+     * propio par BUTTON_SCROLL_*|BUTTON_REPEAT, un poco mas abajo en
+     * este mismo archivo. */
+    { MACT_PREV,             BUTTON_SCROLL_BACK | BUTTON_REPEAT, BUTTON_NONE },
+    { MACT_NEXT,             BUTTON_SCROLL_FWD  | BUTTON_REPEAT, BUTTON_NONE },
     /* M-106 (plan maestro, Fase 4 del plan hijo): LEFT/RIGHT tambien
      * pasan de foto. La rueda ya lo hacia, pero en un visor a pantalla
      * completa el gesto que la mano espera es el del eje horizontal --

@@ -121,6 +121,24 @@ static void redraw_current(void)
         metro_screen_list_show();
 }
 
+/* M-109: redibuja el visor de fotos consultando si ESTE es el
+ * redibujo que asienta un cambio de foto (metro_screen_photo_viewer_take_slide()
+ * devuelve la dirección solo esa vez, y 0 en cualquier otro caso --
+ * scrubbing en curso, o ya asentado y sin nada nuevo). Un solo sitio
+ * para el mismo patrón que antes vivía inline solo en el despacho de
+ * acciones: ahora también hace falta desde el sondeo periódico
+ * (metro_screen_photo_viewer_wants_ticks()), porque asentar ocurre
+ * por el paso del RELOJ, no por una acción nueva. */
+static void redraw_viewer_settled(void)
+{
+    int dir = metro_screen_photo_viewer_take_slide();
+
+    if (dir != 0)
+        metro_transitions_slide_fast(redraw_current, dir);
+    else
+        redraw_current();
+}
+
 /* F6: the one full-screen wait state in Metro (PLAN_MAESTRO.md S4.3) --
  * drawn straight from metro_main.c, not a metro_screen_* module, same
  * as the plan's own file list for this phase (no new screen file).
@@ -394,10 +412,17 @@ void metro_main(void)
          * desplazando. Se apaga sola en cuanto el texto cabe, el LCD se
          * duerme o las animaciones están apagadas -- la puerta la
          * decide metro_marquee_draw() en cada dibujo, no una pantalla
-         * declarando "yo animo". */
+         * declarando "yo animo".
+         * M-109: y mientras el visor de fotos esté en su ventana de
+         * quietud (scrubbing) -- sin esto, un giro rápido de rueda
+         * seguiría notándose recién 100 ms después de que el usuario
+         * se detiene, no 150 ms; la espera más corta es lo que hace
+         * que el debounce de la vista previa se sienta al tacto y no
+         * a tirones. */
         int action = metro_input_next(ctx,
                                       ((at_root && metro_screen_hub_wants_ticks()) ||
-                                       metro_marquee_wants_ticks())
+                                       metro_marquee_wants_ticks() ||
+                                       (at_viewer && metro_screen_photo_viewer_wants_ticks()))
                                           ? HZ / 20 : HZ / 10,
                                       &steps);
 
@@ -518,6 +543,18 @@ void metro_main(void)
              * redraw_current() ya sabe cuál dibujar. */
             if (metro_marquee_wants_ticks())
                 redraw_current();
+
+            /* M-109: un sondeo más del visor de fotos -- es el único
+             * sitio donde el debounce de 150 ms puede terminar de
+             * vencer sin que llegue ningún botón nuevo (el usuario dejó
+             * de girar la rueda y no volvió a tocar nada). Mientras
+             * siga en ventana de quietud, esto solo refresca la vista
+             * previa (no hace nada nuevo visualmente, pero mantiene el
+             * sondeo vivo); en la vuelta exacta en que el debounce
+             * vence, dispara el decode real y, si corresponde, el
+             * deslizamiento -- ver redraw_viewer_settled(). */
+            if (at_viewer && metro_screen_photo_viewer_wants_ticks())
+                redraw_viewer_settled();
 
             if (!at_root && !at_player && !at_viewer)
             {

@@ -24,6 +24,7 @@
 #include "file.h"
 #include "jpeg_load.h"
 #include "bmp.h"
+#include "kernel.h" /* M-109: current_tick, HZ -- the scrub-settle debounce */
 
 #include "metro_screen_photo_viewer.h"
 #include "metro_master_art.h" /* the decode lock -- M-097 */
@@ -54,9 +55,26 @@ static unsigned char s_scratch[METRO_PHOTO_VIEW_SCRATCH_SIZE];
  * slipped past that cap. */
 #define METRO_PHOTO_LOADING_INDICATOR_SIDE 640
 
+/* M-109 (ronda "ajustes 2", plan maestro SS C.2): la ventana de
+ * "quietud" antes de decodificar de verdad. >= 150 ms sin eventos de
+ * rueda nuevos -- ver metro_photos_viewer_wants_ticks()/take_slide()/
+ * show() para como se usa. HZ = 100 en este target, asi que son
+ * exactamente 15 ticks, sin redondeo. */
+#define METRO_PHOTO_SETTLE_TICKS (HZ * 150 / 1000)
+
 static const metro_photo_item_t *s_items;
 static int s_count;
 static int s_index;
+
+/* M-109: current_tick del ultimo cambio de s_index (por rueda o por
+ * LEFT/RIGHT). Mientras `current_tick - s_nav_tick` sea menor que
+ * METRO_PHOTO_SETTLE_TICKS, el visor esta "en scrubbing": se muestra
+ * la vista previa barata (draw_scrub_preview()) y NO se decodifica
+ * nada. En reposo (recien empujado, o mucho despues del ultimo
+ * evento) esta diferencia ya es enorme, asi que el primer dibujo
+ * siempre entra directo al camino de decode real -- por eso
+ * metro_screen_photo_viewer_push() lo deja deliberadamente "viejo". */
+static long s_nav_tick;
 
 static int s_loaded_index = -1;
 static bool s_loaded_ok = false;
@@ -285,6 +303,80 @@ static void draw_scaled_centered(const fb_data *src, int src_w, int src_h,
     }
 }
 
+/* M-109 (plan maestro SS C.2): vista previa INSTANTANEA mientras la
+ * rueda todavia se esta moviendo -- la maestra compartida de 80 px
+ * (contrato v16/M-097, la MISMA que ya llena la cuadricula) ampliada
+ * 3x a 240x240 (llena el alto de pantalla, centrada) con el nombre y
+ * la posicion debajo. Nunca decodifica un JPEG: si la maestra todavia
+ * no existe (biblioteca grande, el constructor en segundo plano no ha
+ * llegado a esta foto todavia) se ve solo el texto sobre el fondo
+ * limpio -- preferible a forzar un decode que reintroduciria el
+ * bloqueo que este mecanismo existe para evitar.
+ *
+ * draw_scaled_centered() ya sabe centrar y ampliar por muestreo
+ * vecino-mas-cercano (es la misma funcion que dibuja el modo
+ * "cubrir" de la foto completa) -- se reusa tal cual, sin una segunda
+ * primitiva de escalado. */
+#define METRO_PHOTO_PREVIEW_SIDE (LCD_HEIGHT) /* 240: llena el alto, dejando aire a los lados */
+
+/* M-109: franja de fondo SOLIDO al pie, pintada explicitamente con
+ * lcd_fillrect() antes del texto -- MISMO patron y MISMO motivo que
+ * la caption de un tile en metro_draw.c (draw_tile_caption(),
+ * METRO_TILE_CAPTION_H): el CLAUDE.md prohibe conseguir un fondo
+ * opaco detras de texto via DRMODE_SOLID (M-051), asi que cualquier
+ * sitio que de verdad necesite texto legible sobre una imagen lo pinta
+ * a mano. Aqui hace falta ademas por una razon propia: la vista previa
+ * ya llena los 240 px de alto (METRO_PHOTO_PREVIEW_SIDE == LCD_HEIGHT),
+ * asi que no queda aire debajo donde dibujar el nombre/indice -- tiene
+ * que ir SOBRE la imagen, no despues de ella. */
+#define METRO_PHOTO_PREVIEW_CAPTION_H 40
+
+static void draw_preview_caption(void)
+{
+    char buf[METRO_FSUTIL_NAME_LEN + 16];
+    int w, h, y;
+
+    y = LCD_HEIGHT - METRO_PHOTO_PREVIEW_CAPTION_H;
+    lcd_set_foreground(metro_color_bg());
+    lcd_fillrect(0, y, LCD_WIDTH, METRO_PHOTO_PREVIEW_CAPTION_H);
+
+    snprintf(buf, sizeof(buf), "%s", s_items[s_index].filename);
+    lcd_setfont(metro_font_id(MFONT_CAPTION));
+    lcd_getstringsize((const unsigned char *)buf, &w, &h);
+    metro_draw_text_cut_right(MFONT_CAPTION, (LCD_WIDTH - w) / 2 > 0 ? (LCD_WIDTH - w) / 2 : 4,
+                              y + 4, buf, metro_color_fg(), LCD_WIDTH - 8);
+
+    snprintf(buf, sizeof(buf), "%d / %d", s_index + 1, s_count);
+    lcd_getstringsize((const unsigned char *)buf, &w, &h);
+    metro_draw_text(MFONT_CAPTION, (LCD_WIDTH - w) / 2, y + 4 + h + 2,
+                     buf, metro_color_secondary());
+}
+
+static void draw_scrub_preview(void)
+{
+    char key[METRO_MASTER_ART_KEY_LEN];
+    fb_data *master = metro_master_art_scratch();
+    bool have_master;
+
+    metro_photos_master_key(s_items[s_index].filename, s_items[s_index].mtime,
+                            key, sizeof(key));
+
+    /* Lee y DIBUJA bajo el mismo lock: metro_master_art_scratch() es un
+     * unico buffer compartido con el hilo del constructor (M-097) --
+     * valido solo mientras el lock esta tomado, igual que cualquier
+     * otro consumidor de la maestra (ver metro_albumart.c). */
+    metro_master_art_lock();
+    have_master = (metro_master_art_probe("photos", key) == METRO_MASTER_ART_PRESENT) &&
+                  metro_master_art_read("photos", key, master, METRO_MASTER_ART_PHOTO_PX);
+    if (have_master)
+        draw_scaled_centered(master, METRO_MASTER_ART_PHOTO_PX, METRO_MASTER_ART_PHOTO_PX,
+                             METRO_PHOTO_PREVIEW_SIDE, METRO_PHOTO_PREVIEW_SIDE);
+    metro_master_art_unlock();
+
+    draw_preview_caption();
+    lcd_update();
+}
+
 static void probe_current(void)
 {
     char path[MAX_PATH];
@@ -377,9 +469,6 @@ static const struct metro_pivot sentinel_pivots[] = {
 };
 static const struct metro_page sentinel_page = { LANG_HUB_PHOTOS, sentinel_pivots, 1, NULL };
 
-/* M-106: ver metro_screen_photo_viewer.h. */
-static int s_pending_slide = 0;
-
 bool metro_screen_photo_viewer_push(const metro_photo_item_t *items, int count, int start_index)
 {
     if (count <= 0)
@@ -395,7 +484,11 @@ bool metro_screen_photo_viewer_push(const metro_photo_item_t *items, int count, 
 
     s_loaded_index = -1;
     s_probed_index = -1;
-    s_pending_slide = 0; /* M-106: entrar al visor NO desliza (es un fade) */
+    /* M-109: "ya paso el tiempo de quietud" desde el primer dibujo --
+     * abrir el visor debe mostrar la foto de una vez, no la vista
+     * previa (que es para SCRUBBING dentro del visor, no para su
+     * apertura, que ademas ya tiene su propio fundido, M-106). */
+    s_nav_tick = current_tick - METRO_PHOTO_SETTLE_TICKS;
     return true;
 }
 
@@ -404,10 +497,41 @@ bool metro_screen_photo_viewer_is_current(void)
     return metro_screen_list_current_page() == &sentinel_page;
 }
 
+/* M-109: true mientras haya que seguir sondeando -- durante el
+ * debounce de 150 ms (metro_main.c baja su espera a HZ/20, igual que
+ * ya hace por el hub/la marquesina), y una vuelta MAS despues de que
+ * el debounce termina, para que ese ultimo redibujo dispare el decode
+ * real. Se apaga sola en cuanto la foto asentada queda decodificada:
+ * de ahi en mas no hace falta seguir despertando al bucle principal
+ * hasta el proximo evento de rueda. */
+bool metro_screen_photo_viewer_wants_ticks(void)
+{
+    if (s_count == 0)
+        return false;
+    return (current_tick - s_nav_tick < METRO_PHOTO_SETTLE_TICKS) ||
+           (s_loaded_index != s_index);
+}
+
 void metro_screen_photo_viewer_show(void)
 {
     if (s_count == 0)
         return;
+
+    /* M-109 (plan maestro SS C.1/C.2): mientras la rueda sigue
+     * moviendose (o LEFT/RIGHT se siguen apretando), NINGUN indice
+     * intermedio se decodifica -- solo se dibuja la vista previa
+     * barata del destino ACTUAL. El decode real de una foto ocurre
+     * como mucho una vez por gesto, cuando el usuario se detiene. Esto
+     * es lo que cierra M-109: antes, cada paso de la rueda disparaba
+     * su propio decode sincrono aqui mismo, así que un giro continuo
+     * -- incluso si TODOS sus eventos hubieran llegado -- habria
+     * seguido sintiendose atascado. */
+    if (current_tick - s_nav_tick < METRO_PHOTO_SETTLE_TICKS)
+    {
+        metro_draw_clear();
+        draw_scrub_preview();
+        return;
+    }
 
     metro_draw_clear();
 
@@ -444,10 +568,23 @@ void metro_screen_photo_viewer_show(void)
 
 int metro_screen_photo_viewer_take_slide(void)
 {
-    int dir = s_pending_slide;
-
-    s_pending_slide = 0;
-    return dir;
+    /* M-109: ya NO se arma en handle() -- se calcula aqui, en el
+     * momento en que metro_main.c esta a punto de invocar el redibujo
+     * que de verdad va a decodificar (mismo criterio que
+     * metro_screen_photo_viewer_show() usa para decidir "ya asento").
+     * Solo hay deslizamiento la PRIMERA vez que ese redibujo ocurre
+     * para un s_index nuevo -- comparar contra s_loaded_index (la foto
+     * TODAVIA en pantalla) da la direccion sin necesitar guardar nada
+     * en handle(). Devuelve 0 mientras se siga scrubbeando, y 0 otra
+     * vez en cualquier llamada posterior una vez que ya asento (
+     * s_loaded_index habra alcanzado a s_index). */
+    if (s_count == 0)
+        return 0;
+    if (current_tick - s_nav_tick < METRO_PHOTO_SETTLE_TICKS)
+        return 0;
+    if (s_loaded_index == s_index)
+        return 0;
+    return (s_index > s_loaded_index) ? 1 : -1;
 }
 
 void metro_screen_photo_viewer_handle(int action, int steps)
@@ -458,11 +595,26 @@ void metro_screen_photo_viewer_handle(int action, int steps)
         {
             int new_index = s_index - steps;
             if (new_index < 0) new_index = 0;
-            /* M-106: solo se anuncia el deslizamiento si la foto de
-             * verdad cambio -- en el primer o ultimo elemento, seguir
-             * apretando no debe animar nada. */
+            /* M-109: navegacion ACUMULATIVA -- cada evento SOLO mueve
+             * s_index (barato, sin decodificar nada) y reinicia el
+             * reloj de quietud. `steps` (la aceleracion de la rueda,
+             * ya calculada por metro_input_next()) se sigue aplicando
+             * igual que antes; lo que cambia es que un giro rapido ya
+             * no dispara un decode por cada paso -- ver
+             * metro_screen_photo_viewer_show(). El deslizamiento (si
+             * corresponde) se decide en take_slide(), no aqui: en el
+             * momento en que este evento se procesa todavia no se sabe
+             * si es el ultimo de este gesto.
+             *
+             * El reloj SOLO se reinicia si el indice de verdad cambio
+             * -- igual que el guard que M-106 ya tenia para el
+             * deslizamiento. Sin este guard, seguir apretando en el
+             * primer o ultimo elemento (clamp sin cambio real)
+             * mantendria wants_ticks() en true para siempre y la
+             * pantalla se quedaria mostrando la vista previa barata en
+             * vez de la foto ya asentada, aunque nada este cambiando. */
             if (new_index != s_index)
-                s_pending_slide = -1;
+                s_nav_tick = current_tick;
             s_index = new_index;
             break;
         }
@@ -471,7 +623,7 @@ void metro_screen_photo_viewer_handle(int action, int steps)
             int new_index = s_index + steps;
             if (new_index > s_count - 1) new_index = s_count - 1;
             if (new_index != s_index)
-                s_pending_slide = 1;
+                s_nav_tick = current_tick;
             s_index = new_index;
             break;
         }

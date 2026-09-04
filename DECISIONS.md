@@ -3730,3 +3730,68 @@ del target y del bootloader desde cero, dos veces, 0 errores/0 warnings
 reales.
 
 **Tag sugerido cuando el dueño confirme lo de arriba en hardware: `v0.7.0`.**
+
+## M-109 — Visor de fotos: la rueda dejaba de responder a mitad de gesto -- causa raíz, no un ajuste de sensibilidad
+
+**Ronda "ajustes 2", Fase 1.** Plan maestro §C, plan hijo Fase 1. Metro implementa; moonlit porta este diff en su última fase, así que se mantiene acotado a `metro_keymap.c`, `metro_main.c` y `metro_screen_photo_viewer.c`/`.h` — nada fuera de esos cuatro archivos.
+
+### Diagnóstico (obligatorio antes de tocar nada, plan maestro §C.4)
+
+**Síntoma reportado**: en hardware, girar la rueda del iPod sin levantar el dedo avanza **una sola** foto; hace falta soltar la rueda y volver a girar para que avance otra. `steps` (la aceleración de la rueda) ya llegaba correctamente calculado a `metro_screen_photo_viewer_handle()` — el código nunca lo ignoraba, así que el bug no estaba ahí.
+
+**Causa raíz, verificada leyendo el driver, no solo el módulo de Metro:**
+
+1. `firmware/drivers/button.c` (Rockbox base, sin modificar): cualquier código de botón que el driver siga reportando **igual** entre sondeos se marca con `BUTTON_REPEAT` después de `REPEAT_START` = `30*HZ/100` = **300 ms** (`button.c:70,353-361`).
+2. `firmware/target/arm/ipod/button-clickwheel.c` (Rockbox base): mientras la rueda sigue girando en la misma dirección por encima de `WHEEL_SENSITIVITY`, el driver reporta el **mismo** `wheel_keycode` (`BUTTON_SCROLL_FWD`/`BUTTON_SCROLL_BACK`) en cada sondeo — para la máquina de repetición genérica de (1), un giro continuo **es indistinguible** de un botón sostenido.
+3. `apps/action.c`'s `action_code_worker()` (Rockbox base): exige una coincidencia **exacta** del código completo, bits incluidos — un `BUTTON_SCROLL_FWD | BUTTON_REPEAT` no coincide con una fila que solo tenga `BUTTON_SCROLL_FWD`.
+4. `metro_keymap.c`'s `viewer_mapping[]` **no tenía** las filas `BUTTON_SCROLL_FWD | BUTTON_REPEAT` / `BUTTON_SCROLL_BACK | BUTTON_REPEAT` — a diferencia de `list_mapping[]`, que sí las trae (y por eso las listas nunca tuvieron este problema). Como esta tabla termina en `LAST_ITEM_IN_LIST` (no la variante `__NEXTLIST`, documentado en la cabecera del propio módulo), un código sin coincidencia resuelve en `MACT_NONE` y se **descarta en silencio** — nunca cae a otra tabla.
+
+**Encadenado**: el primer clic de un gesto (antes de los 300 ms) llega plano y avanza una foto. Cualquier movimiento posterior de la rueda **dentro del mismo gesto** llega con `BUTTON_REPEAT` puesto y se pierde sin que nada lo registre — el visor no vuelve a reaccionar hasta que el usuario suelta la rueda (lo que rompe la cadena de "mismo botón sostenido" en el driver) y empieza un gesto nuevo, cuyo primer clic vuelve a ser plano. Eso es exactamente "avanza una foto por gesto: hay que levantar el dedo" — no una cuestión de sensibilidad ni de `steps`, sino de una fila de mapeo ausente.
+
+**Corolario**: como los eventos `REPEAT` nunca llegaban a `metro_screen_photo_viewer_handle()`, la aceleración de rueda (`button_apply_acceleration()`, que específicamente escala con la cadencia de eventos `REPEAT`) tampoco se ejercitaba nunca ahí — el "girar rápido salta varias fotos" del punto C.1 del plan maestro era, hasta hoy, código inalcanzable, aunque `steps` ya estaba correctamente cableado.
+
+**El arnés headless no puede reproducir esto tal cual**: el token plano `SCROLL_FWD` de `METRO_SIM_BUTTONS` (`sim_tasks.c`) nunca postea `BUTTON_REPEAT` — solo el sufijo `+HOLD` (M-104) lo hace, con su ciclo genérico press→REPEAT→release, que resulta ser reutilizable para CUALQUIER código de botón, no solo el interruptor Hold para el que se escribió (`inject_hold[i] = hold && code > 0`, sin restricción de botón). `SCROLL_FWD+HOLD` sintetiza exactamente un ciclo del mecanismo real del driver y fue la herramienta usada para la verificación de abajo.
+
+### Corrección de la causa raíz
+
+`viewer_mapping[]` gana las dos filas que le faltaban, mismo patrón que `list_mapping[]`:
+```c
+{ MACT_PREV, BUTTON_SCROLL_BACK | BUTTON_REPEAT, BUTTON_NONE },
+{ MACT_NEXT, BUTTON_SCROLL_FWD  | BUTTON_REPEAT, BUTTON_NONE },
+```
+
+### Diseño del resto de §C: navegación acumulativa, vista previa instantánea, decode diferido
+
+Con la fila de arriba sola, un giro continuo YA avanza foto tras foto — pero cada evento seguía disparando su propio `load_current()` (decode JPEG completo y síncrono) dentro de `metro_screen_photo_viewer_show()`. Un giro rápido habría seguido sintiéndose atascado, solo que ahora bloqueado en una cadena de decodes en vez de perder eventos. El plan maestro pide separar "mover el índice" de "decodificar la foto":
+
+- **`metro_screen_photo_viewer_handle()`**: `MACT_PREV`/`MACT_NEXT` solo mueven `s_index` (con `steps`, clamped, como antes) y, si el índice de verdad cambió, guardan `s_nav_tick = current_tick`. Nada de decode aquí — es deliberadamente barato.
+- **`metro_screen_photo_viewer_show()`**: si `current_tick - s_nav_tick < METRO_PHOTO_SETTLE_TICKS` (150 ms = 15 ticks exactos a HZ=100), dibuja la vista previa barata y **retorna sin decodificar nada**. Solo cuando pasan esos 150 ms sin un nuevo cambio de índice entra al camino de siempre (`probe_current()` + `load_current()` + dibujo). Esto hace que "solo se decodifica la foto donde la rueda se detiene" sea una consecuencia estructural del código, no una regla que haya que recordar respetar en cada sitio.
+- **Vista previa** (`draw_scrub_preview()`, nueva): lee la maestra compartida de 80 px (`/.aura/art/photos/<clave>.art`, contrato v16/M-097 — la MISMA que ya llena la cuadrícula, ninguna decodificación de JPEG de por medio) y la amplía 3× a 240×240 (llena el alto, aire a los lados) reusando `draw_scaled_centered()` tal cual, sin una segunda primitiva de escalado. Nombre e índice (`"archivo.jpg"` / `"N / total"`) van sobre una franja de fondo sólido al pie — mismo patrón que la caption de un tile en `metro_draw.c` (`lcd_fillrect()` explícito, nunca `DRMODE_SOLID`, regla del `CLAUDE.md`/M-051) — necesaria además porque la vista previa ya llena los 240 px de alto y no queda aire debajo donde escribir. Si la maestra todavía no existe (biblioteca grande, el constructor en segundo plano no llegó a esa foto todavía), se ve el texto solo sobre el fondo limpio: preferible a forzar un decode que reintroduciría el bloqueo que este mecanismo existe para evitar.
+- **`metro_screen_photo_viewer_wants_ticks()`** (nueva): true mientras dure la ventana de quietud, o una vuelta más allá (el decode real todavía no ocurrió). `metro_main.c` la suma a las puertas que ya bajan su espera de entrada a HZ/20 (hub, marquesina) — sin esto, el debounce de 150 ms solo se habría notado cuando llegara el SIGUIENTE botón, no cuando de verdad venciera el plazo sin que llegara ninguno.
+- **`metro_screen_photo_viewer_take_slide()`** (rediseñada, mismo nombre y misma idea de "la pantalla anuncia, el bucle decide" que M-106 ya estableció): antes se armaba dentro de `handle()`, por evento. Ahora se calcula en el momento en que `show()` está a punto de decodificar de verdad — compara `s_index` contra `s_loaded_index` (la foto TODAVÍA en pantalla) para dar la dirección, sin necesitar guardar nada nuevo en `handle()`. Devuelve 0 mientras se siga scrubbeando o si ya asentó y no hay nada nuevo; devuelve la dirección exactamente una vez, la vuelta en que el asentado ocurre.
+- **`metro_main.c`**: nuevo `redraw_viewer_settled()` (llama a `take_slide()`, y si no es 0 dispara `metro_transitions_slide_fast()`, si no `redraw_current()` liso) — un solo sitio para el patrón que antes solo vivía inline en el despacho de acciones. Se llama desde ahí (sin cambios) y **también** desde la rama de `MACT_NONE` (sondeo periódico), porque asentar ahora ocurre por el paso del reloj, no necesariamente por una acción nueva — si el usuario deja de tocar la rueda, nada más va a redibujar el visor.
+
+**Punto 3 del plan (decode largo, eventos que no se pierden)**: `read_jpeg_file()` (Rockbox base, `apps/recorder/jpeg_load.c`) no expone ningún gancho de cancelación ni progreso (`jpeg_load.h` verificado) — no es interrumpible desde fuera sin tocar un archivo de Rockbox fuera de `apps/metro/`, que este plan no autoriza para una foto fuera de contrato. El diseño de arriba ya resuelve esto para el caso que de verdad importa: como el decode solo ocurre **una vez por gesto** (nunca por paso intermedio), el escenario que el punto 3 quiere evitar — perder pasos de rueda mientras un decode bloquea — ya no puede ocurrir para una biblioteca conforme al contrato (fotos ≤ 640 px, que decodifican en una fracción de segundo). Para el caso no conforme (una foto que se coló por encima de ese límite), el indicador "cargando" ya existente sigue cubriendo la espera; cualquier evento que llegue durante ese decode queda en la cola del driver (mecanismo general de Rockbox, no algo nuevo de este cambio) y se procesa normalmente en cuanto el decode retorna y el bucle vuelve a sondear.
+
+### Verificado
+
+**Empíricamente, no solo por lectura de código** — con dos assets de la biblioteca de prueba que resultaron tener el MISMO color sólido consecutivo (`A Photograph…jpg` y `beach.jpg`, ambos RGB `(0,187,250)`), lo que en un primer intento hizo la comparación visual inútil; se resolvió comparando checksums MD5 de las capturas y usando `diagram.jpg` (gris, tercera foto) como destino inequívoco:
+
+| Secuencia inyectada | `metro_keymap.c` | Resultado | Checksum |
+|---|---|---|---|
+| `SCROLL_FWD,SCROLL_FWD` (dos gestos separados) | antes del fix | llega a `diagram.jpg` (gris) — control positivo | `d3eba655…` |
+| `SCROLL_FWD+HOLD` (un gesto, press→REPEAT→release) | **antes** del fix | se queda en el azul (índice 0/1, ambos iguales) — **1 avance, no 2** | `214e44f4…` |
+| `SCROLL_FWD+HOLD` (mismo gesto) | **después** del fix | llega a `diagram.jpg` (gris) — **2 avances, igual que el control positivo** | `d3eba655…` |
+
+El mismo `SCROLL_FWD+HOLD` que antes del fix se comportaba como el primer renglón de la tabla (1 avance) pasa a comportarse EXACTAMENTE como el segundo (dos avances reales), confirmando que la fila de `BUTTON_REPEAT` cierra el bug sin necesitar el gesto real de dos clics separados.
+
+- `docs/screenshots/ajustes-2/m109-antes-bug.png`: burst antes del fix, se queda en azul (bug reproducido).
+- `docs/screenshots/ajustes-2/m109-despues-fix.png`: mismo burst después del fix, llega al gris (bug cerrado).
+- `docs/screenshots/ajustes-2/m109-scrubbing.png`: capturado a mitad de la ventana de quietud (3 ticks tras terminar la inyección) — muestra la vista previa ampliada de `diagram.jpg` con `"diagram.jpg"` / `"3 / 17"` superpuestos, confirmando el punto C.2 del plan (vista previa instantánea con nombre/índice mientras la rueda se mueve).
+- Target: **0 errores, 0 warnings** (ninguno nuevo — solo los `-Wmissing-field-initializers` preexistentes de `metro_screen_hub.c`, no tocado esta fase). Simulador: 0 errores.
+- 12 suites de test de host, 0 fallos.
+- `firmware/tools/stack_report.py`: **OK**, 4 864 B (39,6 % de 12 288) — sin cambio frente al cierre de la ronda anterior.
+
+**Diff acotado, tal como pedía el plan** (moonlit lo porta en su última fase): solo `metro_keymap.c`, `metro_main.c`, `metro_screen_photo_viewer.c` y `metro_screen_photo_viewer.h`. Ningún archivo de Rockbox fuera de `apps/metro/`.
+
+**Pendiente para la lista de verificación en hardware**: el plan maestro pide "girar continuo por 20 fotos" — el arnés headless puede demostrar el mecanismo (un ciclo REPEAT sintético) pero no una rueda física real durante varios segundos.
