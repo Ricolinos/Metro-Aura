@@ -86,7 +86,15 @@ void metro_apply_hygiene(void)
      * disk, never sent anywhere) -- same "decide it for the user"
      * class as every other setting forced here. */
     global_settings.runtimedb = true;
-    global_settings.keyclick = 0;              /* M-008: piezo off by default */
+    /* M-103: `keyclick` ya NO se fuerza aqui. M-008 lo apagaba en cada
+     * arranque porque no habia forma de encenderlo -- no existia la
+     * fila. Ahora existe (Ajustes > general > clicker) y persiste en
+     * config.cfg, asi que forzarlo seria pisar en cada arranque lo que
+     * el usuario acaba de elegir. El default sigue siendo apagado: lo
+     * pone `apps/settings_list.c` (CHOICE_SETTING ... default 0) la
+     * primera vez que se escribe config.cfg, que es exactamente donde
+     * corresponde. Lo mismo vale para `poweroff`, que esta fase expone
+     * y que nunca se forzo aqui (su default de Rockbox es 10 min). */
 #ifdef USB_ENABLE_HID
     global_settings.usb_hid = false;
 #endif

@@ -3317,3 +3317,73 @@ La arista `skin_get_gwps → skin_load` vuelve a `GUARDED_EDGES` de `stack_repor
 - `docs/COMPAT_STUDIO.md`: filas **C32** (format.txt) y **C33** (clave v18).
 
 **Límite documentado.** `Aura-Firmware/CONTRATO-firmware-studio.md` todavía dice **"Versión 17"**: la sesión canónica no ha publicado v18. Las dos cosas se implementaron contra el texto literal del plan maestro §A.2, que es la especificación acordada para v18. Anotado también en la cabecera de `docs/COMPAT_STUDIO.md`, para borrarlo cuando el repo hermano publique.
+
+## M-103 — Ajustes homologados con Aura y moonlit: apagado automático, clicker, ajuste de volumen, avisos legales, y brillo/retroiluminación con pantalla de barra
+
+**Ronda "homologación", Fase 2.** Matriz canónica de Ajustes del plan maestro §C, que fija la MISMA lista en las tres familias, cada una con su propio idioma visual ("similar", no idéntico).
+
+### Lo que faltaba y por qué importa
+
+El plan maestro verificó (hallazgo 5 de su §0) que **ni Metro ni moonlit tenían apagado automático**: solo temporizador de sueño, que es otra cosa (uno apaga tras N minutos **de inactividad**, el otro tras N minutos **pase lo que pase**). Tampoco tenían clicker ni ajuste de volumen, y ninguna de las dos mostraba el aviso de licencia en el aparato — que la GPL v2 §3 pide que esté a la vista del usuario, no solo en el repositorio.
+
+### Filas nuevas (pivot "general")
+
+| Fila | Respaldo | Valores |
+|---|---|---|
+| **apagado automático** | `global_settings.poweroff` + `set_poweroff_timeout()` | nunca · 10 · 20 · 60 min |
+| **ajuste de volumen** | `global_settings.replaygain_settings.type` + `dsp_replaygain_set_settings()` | desactivado · por pista · por álbum |
+| **clicker** | `global_settings.keyclick` (+ `keyclick_hardware`) | activado · desactivado |
+
+- **Apagado automático va junto al temporizador de sueño**, no al final: son las dos filas de energía y así se leen como un par.
+- **Ajuste de volumen no expone el valor 2** de Rockbox ("ganancia de pista si el aleatorio está puesto, de álbum si no"): es una regla que nadie puede deducir de una fila de dos palabras, y las tres familias tienen que ofrecer lo mismo. Si el valor guardado fuera 2, la fila lo muestra como "desactivado" y el primer SELECT lo saca de ahí.
+- **El clicker es UN solo interruptor**, como el iPod original y como Aura (que llegó a la misma conclusión en D-196/D-201). En el 6G `keyclick` es el beep por el DAC — inaudible sin audífonos, que es como se usa el aparato la mayor parte del tiempo — y `keyclick_hardware` es el piezo, que es el clic que la gente reconoce. Dos filas para eso sería pedirle al usuario que entienda una diferencia de implementación. Se prenden y se apagan juntos; el nivel encendido es 2 ("moderate" en la escala 0..3 de Rockbox), el medio de la escala: un clic de interfaz no debería ser lo más fuerte que el aparato sabe hacer.
+- **No hizo falta tocar nada para que el clicker SUENE.** `get_custom_action()` — por donde pasa toda la entrada de Metro (`metro_input.c`) — ya llama `keyclick_click()` al final de `get_action_worker()` (`apps/action.c:1005`). Lo único que faltaba era que el ajuste pudiera estar prendido.
+
+### `candado` → `bloqueo`
+
+`LANG_SETTING_LOCK` en español pasa de "candado" a "bloqueo" (EN ya decía "screen lock"). Es el nombre que fija la matriz §C para las tres familias.
+
+### `metro_apply_hygiene()` ya no pisa `keyclick`
+
+M-008 lo forzaba a 0 **en cada arranque**, y era correcto entonces: no existía la fila, así que no había forma de encenderlo y el default tenía que venir de algún lado. Ahora la fila existe y persiste, así que forzarlo sería pisar en cada arranque lo que el usuario acaba de elegir. El default sigue siendo apagado — lo pone `apps/settings_list.c` (`CHOICE_SETTING … default 0`) la primera vez que se escribe `config.cfg`, que es exactamente donde corresponde. `poweroff` nunca se forzó ahí (su default de Rockbox es 10 min), así que no requirió cambio.
+
+### El ajuste se guardaba… tarde
+
+`settings_save()` **no escribe**: registra un callback de "disco ocioso" (`apps/settings.c:738`) que corre cuando el hilo de almacenamiento decide que la unidad puede dormir — y `call_storage_idle_notifys()` se auto-bloquea **30 s** entre corridas (`firmware/ata_idle_notify.c:58`). En un apagado limpio el flush llega igual, por `system_flush()` (`apps/misc.c:341`), así que **no era un bug**; pero significa que entre "el usuario eligió esto" y "está en el disco" pueden pasar minutos, y un iPod se queda sin batería o se reinicia a mano (MENU+SELECT) sin apagado limpio con toda naturalidad.
+
+Los ajustes **propios** de Metro (`metro_settings_save()` → `aura.cfg`) se escriben en el acto desde siempre. Que los de Rockbox fueran más frágiles que los propios no tiene defensa desde el lado del usuario, así que las filas de esta pantalla ahora fuerzan el flush (`settings_save_now()` = `settings_save()` + `call_storage_idle_notifys(true)`, el mismo par que M-090 ya usaba antes de un cambio de firmware). Cuesta una escritura de `config.cfg` por pulsación en una fila de ajustes, del mismo orden que el `aura.cfg` que ya se escribía. Se aplicó también a brillo, retroiluminación y límite de volumen, que arrastraban la misma fragilidad desde antes.
+
+**Esto es lo que hizo verificable la persistencia en el simulador**, donde el proceso termina mucho antes de los 30 s del candado de ocio — la razón por la que las primeras corridas parecían no guardar nada.
+
+### Brillo y retroiluminación: pantalla propia con barra
+
+Ciclaban con SELECT sobre cuatro y seis valores. Con cuatro pasos de brillo el usuario no puede afinar; con seis de retroiluminación llegar al que quiere cuesta hasta cinco pulsaciones sin ver nunca el rango completo. Aura lo resuelve con un deslizador; Metro no tiene gesto de arrastre en la rueda, así que la forma equivalente es **una pantalla propia donde la rueda ES el control**: cada paso se aplica en vivo con `backlight_set_brightness()`/`backlight_set_timeout()`, MENU vuelve y guarda.
+
+- Módulo nuevo `metro_screen_adjust.c/.h`. **No sabe qué está ajustando**: el llamador le pasa cuántos pasos hay, en cuál empieza, cómo se rotula cada uno y qué hacer al cambiar. Por eso el mismo código sirve para brillo (10 pasos lineales) y para retroiluminación (6 valores no lineales, "nunca" incluido) — y eso es justo lo que hace que las dos filas se sientan iguales, que es lo que pedía el plan.
+- **Brillo: 10 pasos lineales** sobre el rango real del panel (`MIN_BRIGHTNESS_SETTING..MAX_BRIGHTNESS_SETTING` = 1..63), redondeando al entero más cercano para no perder niveles por truncamiento. Un valor guardado fuera de la rejilla (un `config.cfg` anterior a esta fase) entra por el paso **más cercano**, nunca por el 0.
+- **La rueda mueve UN paso por evento, sin aceleración**: `button_apply_acceleration()` está pensada para listas de cientos de filas y en un control de 6 o 10 posiciones haría imposible pararse en una. `steps` se ignora a propósito. La pantalla de texto (abajo) hace lo contrario, por el mismo razonamiento al revés.
+- **El porcentaje del rótulo es la POSICIÓN en el control** (10 %..100 %), el mismo número que dibuja la barra. Antes de corregirlo decía el crudo del panel (`brightness / 0x3f`) y no coincidía con la barra: "55 %" bajo una barra llena al 60 %. Ninguno de los dos es "brillo percibido" (la respuesta del panel no es lineal), así que entre un número que miente igual y contradice a la barra, y uno que miente igual pero concuerda, gana el segundo.
+- **Un solo `settings_save_now()` al salir**, no uno por paso: guardar en cada clic de rueda sería una escritura a disco por clic.
+
+### Avisos legales
+
+Fila nueva en el pivot **"acerca de"** que abre `metro_screen_text.c/.h`, una pantalla de texto corrido con ajuste de línea: la rueda desplaza (aquí **sí** con aceleración: es un texto largo que se recorre), MENU vuelve. Es la única pantalla de Metro que muestra texto corrido — la lista genérica dibuja filas de una línea con recorte a la derecha, que para un párrafo de licencia significa perder el texto. El contenido (GPL v2 sin garantía, URL del repositorio con el código y `MODIFICATIONS.md`, Selawik bajo SIL OFL 1.1, iconos Fluent bajo MIT) sale del catálogo bilingüe como todo lo demás de la UI; no lee disco.
+
+**Desviación del plan hijo, anotada:** su Fase 2 pone esta fila en el pivot **general**; el plan maestro §C dice "fila en **acerca de**". Manda el maestro (es la especificación), y además es donde un usuario busca licencias. Confirmado con la supervisora.
+
+### `-Wmissing-field-initializers`, de paso
+
+`struct metro_pivot` fue ganando campos (`tile_cols`, `get_tile`, `empty_message` y ahora `on_select_hold`), y cada inicializador **posicional** dejaba un warning por campo faltante. Ese ruido esconde el warning del día que sí importe. Los cuatro inicializadores de `metro_screen_settings.c`/`metro_screen_about.c` pasan a **designados**: lo que no se nombra queda en 0/NULL por el estándar, que es justo el default que cada campo documenta. Con eso el build de target vuelve a **0 warnings**. (`metro_screen_hub.c` conserva los suyos: no lo tocó esta fase.)
+
+### Pendiente declarado
+
+**Fecha y hora** (P2 de la matriz §C: rueda por campo — hora, minuto, día, mes, año) **no entra en esta fase**. Es la única fila de la matriz que queda sin portar; necesita un editor de campos propio, no una fila que cicla ni la pantalla de barra, y el plan la marca P2 explícitamente. Anotada aquí para que no se pierda.
+
+### Verificado
+
+- `firmware/tools/build_target.sh --firmware`: **0 errores, 0 warnings**.
+- `firmware/tools/build_sim.sh` (con `make install`): 0 errores.
+- `make -C firmware/rockbox/apps/metro/test test`: **11 suites, 0 fallos**.
+- `firmware/tools/stack_report.py`: sigue en **OK** tras las pantallas nuevas.
+- **Persistencia verificada de verdad, con reinicio**: se enciende el clicker y se pone el apagado automático en 60 min; `config.cfg` queda con `keyclick: moderate`, `hardware keyclick: on`, `idle poweroff: 60`; se vuelve a arrancar **sin tocar nada** y las dos filas siguen mostrando "activado" y "60 min" (`docs/screenshots/ronda-homologacion/f2-persistencia.png`). Es la prueba directa de que `metro_apply_hygiene()` ya no las pisa.
+- Capturas: `f2-general-1.png`, `f2-general-2.png`, `f2-general-3.png` (las filas nuevas y "bloqueo" renombrada), `f2-brillo.png` (barra al 60 %, rótulo y barra coincidiendo), `f2-retro.png` (misma pantalla, valor "10s"), `f2-acerca-de.png` (fila "avisos legales" al final), `f2-legal.png` y `f2-legal-2.png` (texto ajustado y desplazado), `f2-persistencia.png`.

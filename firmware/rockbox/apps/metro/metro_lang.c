@@ -139,7 +139,7 @@ static const char *const strings_es[LANG_COUNT] = {
 
     [LANG_NP_RATING]           = "calificación",
 
-    [LANG_SETTING_LOCK]         = "candado",
+    [LANG_SETTING_LOCK]         = "bloqueo",
     [LANG_LOCK_TITLE_LOCKED]    = "bloqueado",
     [LANG_LOCK_TITLE_SET]       = "clave nueva",
     [LANG_LOCK_TITLE_CONFIRM]   = "confirma",
@@ -171,6 +171,32 @@ static const char *const strings_es[LANG_COUNT] = {
 
     [LANG_ABOUT_STACK]    = "pila principal",
     [LANG_ABOUT_STACK_NA] = "n/d en el simulador",
+
+    [LANG_SETTING_POWEROFF] = "apagado automático",
+    [LANG_SETTING_KEYCLICK] = "clicker",
+    [LANG_SETTING_LEGAL]    = "avisos legales",
+    [LANG_SETTING_REPLAYGAIN]     = "ajuste de volumen",
+    [LANG_VALUE_REPLAYGAIN_TRACK] = "por pista",
+    [LANG_VALUE_REPLAYGAIN_ALBUM] = "por álbum",
+    [LANG_LEGAL_BODY] =
+        "Metro-Aura es software libre, derivado de Rockbox "
+        "(rockbox.org), y se distribuye bajo la Licencia Pública "
+        "General de GNU, versión 2 o posterior.\n"
+        "\n"
+        "Este programa se entrega SIN NINGUNA GARANTÍA, ni siquiera la "
+        "garantía implícita de comerciabilidad o idoneidad para un "
+        "propósito particular. Lee la licencia completa para conocer "
+        "tus derechos.\n"
+        "\n"
+        "El código fuente completo, la lista de modificaciones "
+        "respecto a Rockbox (MODIFICATIONS.md) y el texto de la "
+        "licencia están en:\n"
+        "github.com/Ricolinos/Metro-Aura\n"
+        "\n"
+        "Tipografía Selawik (c) Microsoft Corporation, bajo la SIL "
+        "Open Font License 1.1.\n"
+        "\n"
+        "Iconos Fluent (c) Microsoft Corporation, bajo licencia MIT.",
 };
 
 static const char *const strings_en[LANG_COUNT] = {
@@ -321,6 +347,32 @@ static const char *const strings_en[LANG_COUNT] = {
 
     [LANG_ABOUT_STACK]    = "main stack",
     [LANG_ABOUT_STACK_NA] = "n/a on the simulator",
+
+    [LANG_SETTING_POWEROFF] = "auto power off",
+    [LANG_SETTING_KEYCLICK] = "clicker",
+    [LANG_SETTING_LEGAL]    = "legal notices",
+    [LANG_SETTING_REPLAYGAIN]     = "volume adjust",
+    [LANG_VALUE_REPLAYGAIN_TRACK] = "per track",
+    [LANG_VALUE_REPLAYGAIN_ALBUM] = "per album",
+    [LANG_LEGAL_BODY] =
+        "Metro-Aura is free software, derived from Rockbox "
+        "(rockbox.org), and is distributed under the GNU General "
+        "Public License, version 2 or later.\n"
+        "\n"
+        "This program comes with ABSOLUTELY NO WARRANTY, not even the "
+        "implied warranty of merchantability or fitness for a "
+        "particular purpose. Read the full license to know your "
+        "rights.\n"
+        "\n"
+        "The complete source code, the list of modifications to "
+        "Rockbox (MODIFICATIONS.md) and the license text are at:\n"
+        "github.com/Ricolinos/Metro-Aura\n"
+        "\n"
+        "Selawik typeface (c) Microsoft Corporation, under the SIL "
+        "Open Font License 1.1.\n"
+        "\n"
+        "Fluent icons (c) Microsoft Corporation, under the MIT "
+        "license.",
 };
 
 void metro_lang_set(enum metro_language lang)

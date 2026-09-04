@@ -898,3 +898,59 @@ directorio. Corregido con `OTHER_INC += -I$(APPSDIR)/metro`
 (`mpegplayer.make`, marca `Metro (M-101)`, registro en
 `MODIFICATIONS.md`). Sin efecto sobre el binario: solo sobre la pasada
 de dependencias.
+
+
+## R7-4 — "Avisos legales" va en el pivot "acerca de", no en "general"
+
+`PLAN-metro-ronda-homologacion.md` §Fase 2 punto 1 lista "avisos legales"
+entre las filas nuevas del pivot **general**. El plan maestro
+`PLAN-ronda-3-firmwares-maestro.md` §C, que es la especificación de la
+que ese punto deriva, dice **"fila en 'acerca de' que abre texto
+desplazable"**.
+
+Manda el maestro, y además es lo correcto para el usuario: quien busca
+una licencia la busca en "acerca de", no entre el idioma y el
+ecualizador. La fila queda al final de ese pivot, después de la de
+versión (y de la de pila cuando está revelada). Confirmado con la
+supervisora. Ver `DECISIONS.md` M-103.
+
+## R7-5 — `settings_save()` de Rockbox no escribe: registra un callback de disco ocioso
+
+Encontrado al verificar que "apagado automático" y "clicker" persisten:
+tras cambiarlos, `config.cfg` seguía siendo el de una compilación de dos
+semanas antes. No era un bug de la fase — `settings_save()`
+(`apps/settings.c:738`) **no escribe nada**: quita el callback de estado
+pendiente y registra `flush_config_block_callback` en el evento
+`DISK_EVENT_SPINUP`. El disparo real lo hace
+`call_storage_idle_notifys()`, que además **se auto-bloquea 30 s** entre
+corridas (`firmware/ata_idle_notify.c:58`). En un apagado limpio el
+flush llega por `system_flush()` (`apps/misc.c:341`), así que en
+hardware el ajuste no se perdía; pero en el simulador el proceso termina
+mucho antes de esos 30 s, y en el aparato pueden pasar minutos entre la
+elección del usuario y el disco.
+
+Metro escribe sus ajustes PROPIOS (`aura.cfg`) en el acto desde siempre.
+Que los de Rockbox fueran más frágiles que los propios no se sostiene, así
+que las filas de Ajustes ahora fuerzan el flush con
+`call_storage_idle_notifys(true)` — el mismo par que M-090 ya usaba antes
+de un cambio de firmware. Afecta también a brillo, retroiluminación y
+límite de volumen, que arrastraban lo mismo desde fases anteriores. Ver
+`DECISIONS.md` M-103.
+
+## R7-6 — Inyección headless: los `WAIT` alrededor de las animaciones PUSH cambian el resultado
+
+Método, no código. Durante las verificaciones de las fases 1 y 2, varias
+secuencias de `METRO_SIM_BUTTONS` "no entraban" a una pantalla y en
+realidad el botón había caído dentro de la animación PUSH y lo drenó
+`drain_button_queue_if_full()` (el mismo efecto que ya documentó M-069 al
+subir la resolución del sondeo del hilo del simulador). Dos consecuencias
+prácticas para quien escriba secuencias nuevas:
+
+1. Un `WAIT` **después de cada** SELECT que empuja una página, no solo al
+   final. Sin eso la pulsación siguiente se pierde en silencio y la
+   secuencia termina en otra pantalla, sin ningún error visible.
+2. Al verificar el retorno de un plugin, **no inyectar la salida**: el
+   clip de video de prueba termina solo y devuelve a la lista. Cuatro
+   corridas parecieron "no entra al video" cuando lo que pasaba era que
+   `mpegplayer` ya había corrido completo y el `MENU` inyectado llegaba
+   a la lista de Metro, no al plugin.

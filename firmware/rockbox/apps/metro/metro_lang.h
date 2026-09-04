@@ -193,6 +193,16 @@ enum metro_lang_id {
     LANG_ABOUT_STACK,
     LANG_ABOUT_STACK_NA,
 
+    /* M-103 (ronda homologacion, matriz de Ajustes del plan maestro
+     * SS C): filas homologadas con Aura y moonlit. */
+    LANG_SETTING_POWEROFF,      /* apagado automatico */
+    LANG_SETTING_KEYCLICK,      /* clicker */
+    LANG_SETTING_LEGAL,         /* avisos legales */
+    LANG_SETTING_REPLAYGAIN,    /* ajuste de volumen (replaygain) */
+    LANG_VALUE_REPLAYGAIN_TRACK,
+    LANG_VALUE_REPLAYGAIN_ALBUM,
+    LANG_LEGAL_BODY,            /* el texto completo, con saltos de linea */
+
     LANG_COUNT
 };
 

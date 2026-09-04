@@ -356,3 +356,5 @@ metro/metro_firmware_families.c
 metro/metro_master_art_format.c
 metro/metro_master_art.c
 metro/metro_master_art_builder.c
+metro/metro_screen_adjust.c
+metro/metro_screen_text.c

@@ -24,7 +24,9 @@
 #include "settings.h"
 #include "backlight.h"
 #include "powermgmt.h" /* R3-F6/DD-10: set_sleeptimer_duration()/get_sleep_timer() */
+#include "ata_idle_notify.h" /* M-103: call_storage_idle_notifys() */
 #include "eq.h" /* R3-F6/DD-10: dsp_eq_enable()/dsp_set_eq_coefs() */
+#include "dsp_misc.h" /* M-103: dsp_replaygain_set_settings() */
 
 #include "metro_screen_settings.h"
 #include "metro_screen_about.h"
@@ -39,6 +41,7 @@
 #include "metro_volume.h"
 #include "metro_firmware_families.h" /* M-093: "cambiar sistema" */
 #include "metro_screen_list.h"
+#include "metro_screen_adjust.h" /* M-103: brillo/retroiluminación */
 
 /* --- general: language, library update, reset settings ---------------- */
 
@@ -181,6 +184,133 @@ static void cycle_volume_limit(void)
             break;
         }
     metro_music_set_volume_limit_level(next);
+    call_storage_idle_notifys(true); /* M-103: ver settings_save_now() */
+}
+
+/* M-103: guardar un ajuste de Rockbox Y dejarlo en disco AHORA.
+ *
+ * `settings_save()` no escribe: registra un callback de "disco ocioso"
+ * (`apps/settings.c:738`) que corre cuando el hilo de almacenamiento
+ * decide que la unidad puede dormir -- y `call_storage_idle_notifys()`
+ * se auto-bloquea 30 s entre corridas (`firmware/ata_idle_notify.c:58`).
+ * En un apagado limpio el flush llega igual, por `system_flush()`
+ * (`apps/misc.c:341`), asi que no era un bug; pero significa que entre
+ * "el usuario eligio esto" y "esta en el disco" pueden pasar minutos, y
+ * un iPod se queda sin bateria o se reinicia a mano (MENU+SELECT) sin
+ * apagado limpio con toda naturalidad.
+ *
+ * Los ajustes PROPIOS de Metro (`metro_settings_save()` -> `aura.cfg`)
+ * se escriben en el acto desde siempre. Que los de Rockbox sean mas
+ * fragiles que los propios no tiene defensa desde el lado del usuario,
+ * asi que las filas de esta pantalla fuerzan el flush. Cuesta una
+ * escritura de config.cfg por pulsacion en una fila de ajustes, del
+ * mismo orden que el aura.cfg que ya se escribia. */
+static void settings_save_now(void)
+{
+    settings_save();
+    call_storage_idle_notifys(true);
+}
+
+/* M-103 (matriz de Ajustes homologada, plan maestro SS C): apagado
+ * automatico. Los mismos cuatro valores que Aura -- nunca / 10 / 20 /
+ * 60 min -- sobre `global_settings.poweroff` (minutos, 0 = apagado;
+ * apps/settings_list.c:1291) y `set_poweroff_timeout()`, que es lo que
+ * arma el temporizador de verdad. A diferencia del temporizador de
+ * sueno (que es de sesion y reinicia en cada arranque, R3-F6/DD-10),
+ * este SI persiste: va en config.cfg via settings_save(). */
+static const int poweroff_steps_min[] = { 0, 10, 20, 60 };
+#define POWEROFF_STEPS_N (int)(sizeof(poweroff_steps_min) / sizeof(poweroff_steps_min[0]))
+
+static const char *poweroff_subtitle(void)
+{
+    static char buf[16];
+
+    if (global_settings.poweroff <= 0)
+        return metro_lang_str(LANG_VALUE_NEVER);
+    snprintf(buf, sizeof(buf), "%d min", global_settings.poweroff);
+    return buf;
+}
+
+static void cycle_poweroff(void)
+{
+    int i, next = poweroff_steps_min[0];
+
+    for (i = 0; i < POWEROFF_STEPS_N; i++)
+        if (poweroff_steps_min[i] > global_settings.poweroff)
+        {
+            next = poweroff_steps_min[i];
+            break;
+        }
+    global_settings.poweroff = next;
+    set_poweroff_timeout(next);
+    settings_save_now();
+}
+
+/* M-103 (P2 de la fase, matriz SS C "Ajuste de volumen"): replaygain.
+ * Tres valores, los mismos que ofrece Aura -- apagado / pista / album
+ * -- sobre `global_settings.replaygain_settings.type`
+ * (lib/rbcodec/dsp/dsp_misc.h: 0 = pista, 1 = album, 2 = pista si hay
+ * aleatorio, 4 = apagado). El valor 2 NO se expone: "depende de si el
+ * aleatorio esta puesto" es una regla que el usuario no puede deducir
+ * de una fila de dos palabras, y las tres familias tienen que ofrecer
+ * lo mismo.
+ *
+ * `dsp_replaygain_set_settings()` aplica en vivo; el struct entero es
+ * lo que persiste en config.cfg. */
+static const int replaygain_steps[] = { 4, 0, 1 }; /* apagado, pista, album */
+#define REPLAYGAIN_STEPS_N (int)(sizeof(replaygain_steps) / sizeof(replaygain_steps[0]))
+
+static const enum metro_lang_id replaygain_names[REPLAYGAIN_STEPS_N] = {
+    LANG_VALUE_OFF, LANG_VALUE_REPLAYGAIN_TRACK, LANG_VALUE_REPLAYGAIN_ALBUM,
+};
+
+static int replaygain_index(void)
+{
+    int i;
+
+    for (i = 0; i < REPLAYGAIN_STEPS_N; i++)
+        if (replaygain_steps[i] == global_settings.replaygain_settings.type)
+            return i;
+    return 0; /* incluye el valor 2, que esta fila no ofrece */
+}
+
+static void cycle_replaygain(void)
+{
+    int next = (replaygain_index() + 1) % REPLAYGAIN_STEPS_N;
+
+    global_settings.replaygain_settings.type = replaygain_steps[next];
+    dsp_replaygain_set_settings(&global_settings.replaygain_settings);
+    settings_save_now();
+}
+
+/* M-103: clicker. UN solo interruptor, como el iPod original y como
+ * Aura (que llego a la misma conclusion en su D-196/D-201): en el 6G
+ * `keyclick` es el beep por el DAC -- inaudible sin audifonos, que es
+ * como se usa el aparato la mayor parte del tiempo -- y
+ * `keyclick_hardware` es el piezo, que es el clic que la gente
+ * reconoce. Exponer dos filas para eso seria pedirle al usuario que
+ * entienda una diferencia de implementacion. Se prenden y se apagan
+ * juntos.
+ *
+ * No hace falta tocar nada mas para que suene: `get_custom_action()`
+ * -- por donde pasa TODA la entrada de Metro (metro_input.c) -- ya
+ * llama `keyclick_click()` al final de `get_action_worker()`
+ * (apps/action.c:1005). Lo unico que faltaba era que el ajuste pudiera
+ * estar prendido; ver el retiro del forzado en metro_apply_hygiene()
+ * (metro_main.c, M-103). El valor 2 ("moderate" en la escala 0..3 de
+ * Rockbox) es el medio de la escala: un clic de interfaz no deberia
+ * ser lo mas fuerte que el aparato sabe hacer. */
+#define METRO_KEYCLICK_ON_LEVEL 2
+
+static void toggle_keyclick(void)
+{
+    bool on = (global_settings.keyclick != 0);
+
+    global_settings.keyclick = on ? 0 : METRO_KEYCLICK_ON_LEVEL;
+#ifdef HAVE_HARDWARE_CLICK
+    global_settings.keyclick_hardware = !on;
+#endif
+    settings_save_now();
 }
 
 /* --- "cambiar sistema" (M-093, contrato v10 con tres familias) --------
@@ -221,9 +351,15 @@ static void switch_on_select(void *ctx, int index)
         metro_firmware_switch_to(index);
 }
 
+/* M-103: inicializadores DESIGNADOS. Los posicionales dejaban un
+ * -Wmissing-field-initializers por cada campo que struct metro_pivot
+ * fue ganando (tile_cols, get_tile, empty_message, on_select_hold), y
+ * ese ruido esconde el warning del día que sí importe. Designados, los
+ * campos que no se nombran quedan en 0/NULL por el estándar, que es
+ * justo el default que cada uno documenta. */
 static const struct metro_pivot switch_pivots[] = {
-    { LANG_SETTING_SWITCH_SYSTEM, switch_count, switch_get_row, switch_on_select,
-      NULL, 0, NULL, 0 },
+    { .name = LANG_SETTING_SWITCH_SYSTEM, .count = switch_count,
+      .get_row = switch_get_row, .on_select = switch_on_select },
 };
 static const struct metro_page switch_page = {
     LANG_SETTING_SWITCH_SYSTEM, switch_pivots, 1, NULL
@@ -232,7 +368,7 @@ static const struct metro_page switch_page = {
 static int general_count(void *ctx)
 {
     (void)ctx;
-    return 10;
+    return 13; /* M-103: +apagado automático, +ajuste de volumen, +clicker */
 }
 
 static void general_get_row(void *ctx, int index, struct metro_row *out)
@@ -264,16 +400,36 @@ static void general_get_row(void *ctx, int index, struct metro_row *out)
             out->kind = METRO_ROW_SETTING;
             break;
         case 4:
+            /* M-103: junto al temporizador de sueño -- son las dos
+             * filas de energía, y así se leen como un par. */
+            out->title = metro_lang_str(LANG_SETTING_POWEROFF);
+            out->subtitle = poweroff_subtitle();
+            out->kind = METRO_ROW_SETTING;
+            break;
+        case 5:
             out->title = metro_lang_str(LANG_SETTING_EQ);
             out->subtitle = metro_lang_str(eq_preset_names[s_eq_preset]);
             out->kind = METRO_ROW_SETTING;
             break;
-        case 5:
+        case 6:
             out->title = metro_lang_str(LANG_SETTING_VOLUME_LIMIT);
             out->subtitle = volume_limit_subtitle();
             out->kind = METRO_ROW_SETTING;
             break;
-        case 6:
+        case 7:
+            out->title = metro_lang_str(LANG_SETTING_REPLAYGAIN);
+            out->subtitle = metro_lang_str(replaygain_names[replaygain_index()]);
+            out->kind = METRO_ROW_SETTING;
+            break;
+        case 8:
+            /* M-103: cierra el bloque de reproducción (EQ, límite de
+             * volumen, ajuste de volumen, clicker), igual que en Aura. */
+            out->title = metro_lang_str(LANG_SETTING_KEYCLICK);
+            out->subtitle = metro_lang_str(global_settings.keyclick
+                                                ? LANG_VALUE_ON : LANG_VALUE_OFF);
+            out->kind = METRO_ROW_SETTING;
+            break;
+        case 9:
             /* R3-F7/DD-8 (M-068): estado real del candado, no la
              * preferencia guardada -- ARMED y ACTIVE se ven igual desde
              * aquí (para llegar a esta fila el aparato ya está
@@ -284,12 +440,12 @@ static void general_get_row(void *ctx, int index, struct metro_row *out)
                                                               : LANG_VALUE_ON);
             out->kind = METRO_ROW_SETTING;
             break;
-        case 7:
+        case 10:
             out->title = metro_lang_str(LANG_SETTING_LIBRARY);
             out->subtitle = NULL;
             out->kind = METRO_ROW_ACTION;
             break;
-        case 8:
+        case 11:
             /* M-093 (era M-090 "cambiar a Aura"): submenu con una fila
              * por familia hermana -- se ve siempre, para que se sepa que
              * existe la opcion; cada fila dice sola si esta instalada. */
@@ -335,14 +491,26 @@ static void general_on_select(void *ctx, int index)
             break;
 
         case 4:
-            cycle_eq();
+            cycle_poweroff(); /* M-103 */
             break;
 
         case 5:
-            cycle_volume_limit();
+            cycle_eq();
             break;
 
         case 6:
+            cycle_volume_limit();
+            break;
+
+        case 7:
+            cycle_replaygain(); /* M-103 */
+            break;
+
+        case 8:
+            toggle_keyclick(); /* M-103 */
+            break;
+
+        case 9:
             /* R3-F7/DD-8 (M-068): con candado -> confirmar y quitarlo;
              * sin candado -> configurar uno nuevo (dos capturas). Quitar
              * pide confirmación (destruye la clave guardada), poner no
@@ -358,7 +526,7 @@ static void general_on_select(void *ctx, int index)
                 metro_screen_lock_setup();
             break;
 
-        case 7:
+        case 10:
             /* M-100: la advertencia de duración va como detalle, no
              * dentro de la pregunta -- draw_question() está topada en
              * dos líneas y la cortaba a la mitad. */
@@ -371,7 +539,7 @@ static void general_on_select(void *ctx, int index)
             }
             break;
 
-        case 8:
+        case 11:
             metro_screen_list_push(&switch_page);
             break;
 
@@ -398,6 +566,21 @@ static void general_on_select(void *ctx, int index)
                 s_eq_preset = METRO_EQ_FLAT;
                 apply_eq_preset((enum metro_eq_preset)s_eq_preset);
                 metro_music_set_volume_limit_level(METRO_VOLUME_MAX_LEVEL);
+
+                /* M-103: apagado automático y clicker SÍ persisten
+                 * (config.cfg), así que "restablecer ajustes" tiene que
+                 * devolverlos a su default o quedarían fuera de una
+                 * fila que promete restablecer todo. El default de
+                 * apagado automático es el de Rockbox (10 min,
+                 * apps/settings_list.c:1291); el del clicker es
+                 * apagado, que es el que Metro traía desde M-008. */
+                global_settings.poweroff = 10;
+                set_poweroff_timeout(global_settings.poweroff);
+                global_settings.keyclick = 0;
+#ifdef HAVE_HARDWARE_CLICK
+                global_settings.keyclick_hardware = false;
+#endif
+                settings_save_now();
             }
             break;
     }
@@ -411,16 +594,108 @@ static const enum metro_lang_id accent_names[METRO_ACCENT_COUNT] = {
     LANG_ACCENT_PURPLE, LANG_ACCENT_RED, LANG_ACCENT_TEAL,
 };
 
-/* A handful of presets rather than the raw 1..MAX_BRIGHTNESS_SETTING
- * range or every possible timeout value -- same "cycle through a
- * short list via SELECT" pattern as theme/accent/repeat, simpler than
- * a slider Metro's input model doesn't have anyway (no drag gesture on
- * a clickwheel). */
-static const int brightness_steps[] = { 16, 32, 48, MAX_BRIGHTNESS_SETTING };
-#define BRIGHTNESS_STEPS_N (int)(sizeof(brightness_steps) / sizeof(brightness_steps[0]))
+/* M-103 (plan maestro SS C): brillo y retroiluminación dejan de ciclar
+ * con SELECT y abren una pantalla propia con barra
+ * (metro_screen_adjust.h). Antes eran cuatro y seis valores que había
+ * que recorrer a ciegas, sin ver nunca el rango; ahora la rueda ES el
+ * control, cada paso se aplica en vivo y MENU vuelve. Es el
+ * equivalente al deslizador de Aura con el gesto que sí existe en una
+ * rueda de clic (no hay arrastre).
+ *
+ * Brillo: 10 pasos LINEALES sobre el rango real del panel
+ * (MIN_BRIGHTNESS_SETTING..MAX_BRIGHTNESS_SETTING = 1..63), tal como
+ * pide el plan. Retroiluminación: se conservan los SEIS valores que ya
+ * tenía -- son tiempos, no una magnitud continua, y "nunca" no cae en
+ * ninguna rejilla lineal -- pero se manejan con la misma pantalla, que
+ * es lo que hace que las dos filas se sientan iguales. */
+#define BRIGHTNESS_STEPS_N 10
+
+static int brightness_value(int step)
+{
+    /* step 0 -> MIN, step N-1 -> MAX, repartido parejo y redondeando
+     * al entero más cercano para que no se pierda ningún nivel útil
+     * del panel por truncamiento. */
+    int span = MAX_BRIGHTNESS_SETTING - MIN_BRIGHTNESS_SETTING;
+
+    return MIN_BRIGHTNESS_SETTING +
+           (step * span * 2 + (BRIGHTNESS_STEPS_N - 1)) / ((BRIGHTNESS_STEPS_N - 1) * 2);
+}
+
+static int brightness_step_of(int value)
+{
+    int i, best = 0, best_d = -1;
+
+    /* El valor guardado puede no caer exactamente en la rejilla (un
+     * aura.cfg de antes de M-103, o el default de Rockbox): se entra
+     * por el paso más cercano, nunca por el 0. */
+    for (i = 0; i < BRIGHTNESS_STEPS_N; i++)
+    {
+        int d = brightness_value(i) - value;
+
+        if (d < 0)
+            d = -d;
+        if (best_d < 0 || d < best_d)
+        {
+            best_d = d;
+            best = i;
+        }
+    }
+    return best;
+}
+
+static const char *brightness_label(void *ctx, int step)
+{
+    static char buf[8];
+
+    (void)ctx;
+    /* El porcentaje es la POSICIÓN en el control (10 %..100 %), el mismo
+     * número que dibuja la barra. Antes decía el crudo del panel
+     * (`brightness / 0x3f`), que no coincidía con la barra por un paso
+     * -- "55 %" bajo una barra llena al 60 %. Ninguno de los dos es
+     * "brillo percibido" (la respuesta del panel no es lineal), así que
+     * entre un número que miente igual y contradice a la barra, y uno
+     * que miente igual pero concuerda, gana el segundo. */
+    snprintf(buf, sizeof(buf), "%d%%", (step + 1) * 100 / BRIGHTNESS_STEPS_N);
+    return buf;
+}
+
+static void brightness_apply(void *ctx, int step)
+{
+    (void)ctx;
+    global_settings.brightness = brightness_value(step);
+    backlight_set_brightness(global_settings.brightness);
+}
 
 static const int backlight_steps[] = { 5, 10, 15, 30, 60, -1 }; /* -1 = never */
 #define BACKLIGHT_STEPS_N (int)(sizeof(backlight_steps) / sizeof(backlight_steps[0]))
+
+static const char *backlight_label(void *ctx, int step)
+{
+    static char buf[12];
+
+    (void)ctx;
+    if (backlight_steps[step] < 0)
+        return metro_lang_str(LANG_VALUE_NEVER);
+    snprintf(buf, sizeof(buf), "%ds", backlight_steps[step]);
+    return buf;
+}
+
+static void backlight_apply(void *ctx, int step)
+{
+    (void)ctx;
+    global_settings.backlight_timeout = backlight_steps[step];
+    backlight_set_timeout(global_settings.backlight_timeout);
+}
+
+static int backlight_step_of(int value)
+{
+    int i;
+
+    for (i = 0; i < BACKLIGHT_STEPS_N; i++)
+        if (backlight_steps[i] == value)
+            return i;
+    return 0;
+}
 
 static int display_count(void *ctx)
 {
@@ -495,31 +770,31 @@ static void display_on_select(void *ctx, int index)
 
         case 2:
         {
-            int i, next = brightness_steps[0];
-            for (i = 0; i < BRIGHTNESS_STEPS_N; i++)
-                if (brightness_steps[i] > global_settings.brightness)
-                {
-                    next = brightness_steps[i];
-                    break;
-                }
-            global_settings.brightness = next;
-            backlight_set_brightness(next);
-            settings_save();
+            /* M-103: pantalla propia con barra; el valor ya quedó
+             * aplicado en vivo, aquí solo se persiste al volver -- un
+             * settings_save() por paso de rueda sería una escritura a
+             * disco por clic. */
+            static const struct metro_adjust_spec spec = {
+                LANG_SETTING_BRIGHTNESS, BRIGHTNESS_STEPS_N,
+                brightness_label, brightness_apply, NULL
+            };
+
+            metro_screen_adjust_run(&spec,
+                                     brightness_step_of(global_settings.brightness));
+            settings_save_now();
             break;
         }
 
         default:
         {
-            int i, next = backlight_steps[0];
-            for (i = 0; i < BACKLIGHT_STEPS_N; i++)
-                if (backlight_steps[i] > global_settings.backlight_timeout)
-                {
-                    next = backlight_steps[i];
-                    break;
-                }
-            global_settings.backlight_timeout = next;
-            backlight_set_timeout(next);
-            settings_save();
+            static const struct metro_adjust_spec spec = {
+                LANG_SETTING_BACKLIGHT, BACKLIGHT_STEPS_N,
+                backlight_label, backlight_apply, NULL
+            };
+
+            metro_screen_adjust_run(&spec,
+                                     backlight_step_of(global_settings.backlight_timeout));
+            settings_save_now();
             break;
         }
     }
@@ -542,9 +817,11 @@ const struct metro_page *metro_screen_settings_page(void)
     if (!built)
     {
         all_pivots[0] = (struct metro_pivot){
-            LANG_PIVOT_GENERAL, general_count, general_get_row, general_on_select, NULL };
+            .name = LANG_PIVOT_GENERAL, .count = general_count,
+            .get_row = general_get_row, .on_select = general_on_select };
         all_pivots[1] = (struct metro_pivot){
-            LANG_PIVOT_DISPLAY, display_count, display_get_row, display_on_select, NULL };
+            .name = LANG_PIVOT_DISPLAY, .count = display_count,
+            .get_row = display_get_row, .on_select = display_on_select };
         all_pivots[2] = metro_screen_about_pivot;
         built = true;
     }

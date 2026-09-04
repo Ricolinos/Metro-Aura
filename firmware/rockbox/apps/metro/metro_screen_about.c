@@ -30,6 +30,7 @@
 #include "metro_device.h"
 #include "metro_manifest.h"
 #include "metro_lang.h"
+#include "metro_screen_text.h" /* M-103: avisos legales */
 
 /* M-101: marca de agua de la pila del hilo principal (plan maestro de
  * la ronda homologacion, seccion E.4). No hay forma de que el dueno
@@ -91,16 +92,24 @@ static int about_count(void *ctx)
 {
     const metro_manifest_t *m = metro_manifest_cached();
     (void)ctx;
-    return 2 + (m ? synced_row_count(m) : 1) + (s_show_stack ? 1 : 0);
+    /* +1 por la fila de avisos legales (M-103), que va SIEMPRE al final
+     * -- después de la de versión y, si está revelada, de la de pila. */
+    return 3 + (m ? synced_row_count(m) : 1) + (s_show_stack ? 1 : 0);
 }
 
-/* Indice de la fila de version ("basado en rockbox"), la ultima salvo
- * cuando la de pila esta revelada debajo. */
+/* Indice de la fila de version ("basado en rockbox"). */
 static int version_row_index(void)
 {
     const metro_manifest_t *m = metro_manifest_cached();
 
     return 1 + (m ? synced_row_count(m) : 1);
+}
+
+/* M-103: "avisos legales" es SIEMPRE la ultima fila, este o no
+ * revelada la de pila entre ella y la de version. */
+static int legal_row_index(void)
+{
+    return version_row_index() + (s_show_stack ? 2 : 1);
 }
 
 /* M-101: "62 % de 12 KB". El porcentaje es la marca de agua real (el
@@ -232,6 +241,17 @@ static void about_get_row(void *ctx, int index, struct metro_row *out)
         }
     }
 
+    if (index == legal_row_index())
+    {
+        /* M-103 (plan maestro SS C): la GPL v2 SS3 pide que el aviso de
+         * licencia esté a la vista del usuario, no solo en el
+         * repositorio. Va en "acerca de" -- que es donde alguien busca
+         * licencias -- y es la única fila accionable de este pivot. */
+        out->title = metro_lang_str(LANG_SETTING_LEGAL);
+        out->kind = METRO_ROW_NAV;
+        return;
+    }
+
     if (s_show_stack && index > version_row_index())
     {
         static char stackbuf[32];
@@ -252,7 +272,10 @@ static void about_get_row(void *ctx, int index, struct metro_row *out)
 static void about_on_select(void *ctx, int index)
 {
     (void)ctx;
-    (void)index;
+
+    if (index == legal_row_index())
+        metro_screen_text_show(metro_lang_str(LANG_SETTING_LEGAL),
+                                metro_lang_str(LANG_LEGAL_BODY));
 }
 
 /* M-101: SELECT sostenido sobre la fila de version revela/oculta la
@@ -267,6 +290,6 @@ static void about_on_select_hold(void *ctx, int index)
 }
 
 const struct metro_pivot metro_screen_about_pivot = {
-    LANG_PIVOT_ABOUT, about_count, about_get_row, about_on_select, NULL,
-    0, NULL, 0, about_on_select_hold
+    .name = LANG_PIVOT_ABOUT, .count = about_count, .get_row = about_get_row,
+    .on_select = about_on_select, .on_select_hold = about_on_select_hold
 };
