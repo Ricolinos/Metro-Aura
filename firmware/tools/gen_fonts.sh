@@ -78,5 +78,41 @@ for entry in "${ROLES[@]}"; do
     -c "$spacing" -o "$out" "$in"
 done
 
+# --- Glifos cirílicos (ruso) desde Inter, fuentes SEPARADAS por rol --
+# preparación de la Fase 5 de "ajustes 2" (M-112): Selawik no trae NI
+# UN glifo cirílico (M-111, confirmado con fontTools + render real),
+# así que ampliar el rango de las fuentes de arriba no sirve de nada
+# -- de ahí que este bloque sea un juego de archivos aparte, no una
+# fila más de ROLES. Inter (SIL OFL 1.1, mismo estilo humanista que
+# Selawik) sí los tiene. Se dibujarán por TRAMOS -- moonlit_textseg.c
+# de moonlit.aura (D-074), portado cuando esa familia cierre su propia
+# clase CYRILLIC -- ruteando el tramo cirílico de una cadena a esta
+# fuente y el resto a la de Selawik de arriba. Ningún código de dibujo
+# las usa todavía: este bloque solo dejarlas generadas y medidas.
+#
+# Regular cubre los cuatro roles que en Selawik usan Light o Regular
+# (Inter no tiene un peso Light separado); SemiBold cubre listsel,
+# igual que Semibold en la tabla de Selawik de arriba. Mismo -c por
+# rol que su contraparte Selawik, para que las dos mitades de un
+# mismo rol se sientan iguales cuando se dibujen una junto a la otra.
+CYRILLIC_ROLES=(
+  "display:Inter-Regular.ttf:48:1"
+  "title:Inter-Regular.ttf:28:1"
+  "list:Inter-Regular.ttf:20:1"
+  "listsel:Inter-SemiBold.ttf:20:1"
+  "caption:Inter-Regular.ttf:14:0"
+)
+CYRILLIC_START=1024 # 0x400
+CYRILLIC_LIMIT=1279 # 0x4FF
+
+for entry in "${CYRILLIC_ROLES[@]}"; do
+  IFS=':' read -r role srcfont size spacing <<< "$entry"
+  in="$FONTS_SRC/$srcfont"
+  out="$FONTS_OUT/metro-$role-$size-cyrillic.fnt"
+  echo "==> $role (cirílico): $srcfont @ ${size}px, -c ${spacing} -> $(basename "$out")"
+  "$CONVTTF" -p "$size" -s "$CYRILLIC_START" -l "$CYRILLIC_LIMIT" \
+    -c "$spacing" -o "$out" "$in"
+done
+
 echo "==> Listo: $FONTS_OUT"
 ls -la "$FONTS_OUT"

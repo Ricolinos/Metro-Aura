@@ -233,7 +233,7 @@ rm -f "$DIST_DIR/rockbox.zip"
 echo "==> Copiando MODIFICATIONS.md (asset del Release, cumplimiento GPL §2a)"
 cp "$ROOT_DIR/MODIFICATIONS.md" "$DIST_DIR/MODIFICATIONS.md"
 
-echo "==> Generando THIRD-PARTY-NOTICES.txt (Selawik + Fluent Icons, asset del Release)"
+echo "==> Generando THIRD-PARTY-NOTICES.txt (Selawik + Inter + Fluent Icons, asset del Release)"
 {
   echo "Metro-Aura -- avisos de terceros"
   echo "================================="
@@ -243,6 +243,11 @@ echo "==> Generando THIRD-PARTY-NOTICES.txt (Selawik + Fluent Icons, asset del R
   echo "fuente de sistema publicada libremente, no un logotipo ni una"
   echo "marca de Zune/Windows Phone. El texto completo de la licencia"
   echo "sigue abajo."
+  echo
+  echo "Los glifos cirílicos (ruso) usan Inter (The Inter Project"
+  echo "Authors, SIL Open Font License 1.1) -- ver DECISIONS.md M-112:"
+  echo "Selawik no trae cirílico, Inter lo cubre y es del mismo estilo"
+  echo "humanista. El texto completo de la licencia sigue abajo."
   echo
   echo "Los iconos de la interfaz provienen de Fluent System Icons"
   echo "(Microsoft, MIT) -- ver DECISIONS.md M-077. Se redistribuyen"
@@ -254,7 +259,11 @@ echo "==> Generando THIRD-PARTY-NOTICES.txt (Selawik + Fluent Icons, asset del R
   echo
   echo "-- Selawik (tipografía) ---------------------------------------------"
   echo
-  cat "$ROOT_DIR/firmware/assets/fonts-src/LICENSE.txt"
+  cat "$ROOT_DIR/firmware/assets/fonts-src/LICENSE-Selawik.txt"
+  echo
+  echo "-- Inter (tipografía, glifos cirílicos) ------------------------------"
+  echo
+  cat "$ROOT_DIR/firmware/assets/fonts-src/LICENSE-Inter.txt"
   echo
   echo "-- Fluent System Icons (iconografía) --------------------------------"
   echo

@@ -3968,3 +3968,42 @@ Sin fila nueva esta fase: `/.aura/settings.cfg` (C35) ya se agregó en la Fase 2
 | 5 -- Cirílico real (nueva, agregada tras PARADA 3) | pendiente | Espera a que moonlit.aura cierre su propio D-074/Fase 3 |
 
 Target y simulador en 0 errores/0 warnings nuevos durante toda la ronda; 13 suites de test de host, 0 fallos, en cada fase. Ningún archivo de Rockbox fuera de `apps/metro/` tocado (M-109/M-110 no lo necesitaron; M-111 solo tocó herramientas propias de este repo en `firmware/tools/`, no Rockbox). Sin tag, sin release.
+
+## M-113 — Fase 5 (preparación): fuentes cirílicas de Inter vendoreadas y generadas, sin tocar el dibujo
+
+**Ronda "ajustes 2", Fase 5, adelanto autorizado por el dueño mientras moonlit.aura cierra su propio D-074/Fase 3.** Instrucción explícita: preparar lo que NO depende de esa Fase 3 de moonlit -- vendorear Inter, generar y medir las fuentes cirílicas de los 5 roles, dejar la regla en `gen_fonts.sh` -- sin tocar ningún código de dibujo. Eso es exactamente el alcance de este ítem; `moonlit_textseg.c` (el mecanismo de dibujo por tramos que rutea cada segmento de una cadena a la fuente que le toca) se porta recién cuando moonlit avise que su clase `CYRILLIC` está lista para copiar.
+
+### Vendoreo
+
+`firmware/assets/fonts-src/Inter-Regular.ttf` e `Inter-SemiBold.ttf`, copiados de `../Aura-Firmware/design-system/vendor/inter-ttf/` (SIL Open Font License 1.1, mismo esquema de licencia que Selawik). `LICENSE.txt` de esa carpeta se renombró a `LICENSE-Selawik.txt` (para no confundirse con la de Inter) y se sumó `LICENSE-Inter.txt` -- mismo criterio de nombrado que ya usa `firmware/assets/icons/LICENSE-fluent-system-icons.txt`. `package_dist.sh` gana la sección de Inter en `THIRD-PARTY-NOTICES.txt`.
+
+No se vendoreó `Inter-Medium.ttf`: el mapeo de pesos que pidió el dueño (Regular para list/caption/display/title, SemiBold para listsel) no lo necesita, e Inter no tiene un peso Light separado -- Regular cubre también los dos roles que en Selawik usan Light (`display`/`title`).
+
+### Generación
+
+`gen_fonts.sh` gana un segundo bloque, `CYRILLIC_ROLES`, que corre después del bloque de Selawik existente: mismo `convttf`, mismo `-c` de espaciado por rol (para que las dos mitades de un rol se sientan iguales), rango decimal `1024`-`1279` (U+0400-04FF), salida `metro-<rol>-<tamaño>-cyrillic.fnt` -- un archivo NUEVO y SEPARADO por rol, no una fila más de la tabla de Selawik, porque mezclar los dos rangos en un solo `.fnt` volvería a pagar la tabla densa hueca entre 0x180 y 0x3FF que M-111 ya identificó como desperdicio. El sufijo `-cyrillic` sigue la misma convención que ya usa moonlit para sus fuentes de puntuación por separado (`moonlit-<rol>-<tamaño>-punct.fnt`, `design-system/generate.py`, leído read-only) -- no una convención inventada aquí.
+
+### Medido
+
+Los 248 glifos cirílicos reales de Inter caben completos en el rango pedido (256 códigos posibles, 8 sin glifo -- huecos normales del bloque Cyrillic Supplement que ni ruso ni ningún idioma de este firmware usa). Tamaño en disco, los 5 archivos nuevos:
+
+| Archivo | Bytes |
+|---|---:|
+| `metro-caption-14-cyrillic.fnt` | 15 008 |
+| `metro-list-20-cyrillic.fnt` | 31 902 |
+| `metro-listsel-20-cyrillic.fnt` | 33 496 |
+| `metro-title-28-cyrillic.fnt` | 55 588 |
+| `metro-display-48-cyrillic.fnt` | 151 300 |
+| **Total** | **287 294 (280,6 KB)** |
+
+**RAM**: `firmware/font.c`'s `font_load_ex()` reserva `core_alloc_ex(bufsize + path_bufsz + sizeof(struct buflib_alloc_data), ...)` y hace un solo `read()` del archivo entero a ese buffer -- el costo en RAM de un `.fnt` cargado es, en la práctica, su tamaño en disco menos la cabecera RB12 (36 B) más un puñado de bytes fijos por handle (la ruta + un struct pequeño, no medido con precisión pero irrelevante frente al tamaño del bitmap). No se cargó ninguna de estas fuentes en el firmware real todavía (nada de `apps/metro/` las referencia aún), así que esta cifra es una proyección a partir del código de carga, no una medición en vivo -- pero el margen de error es chico: **~287 KB de RAM si los 5 roles cirílicos estuvieran cargados a la vez**, la misma orden de magnitud que moonlit documentó para su propio problema equivalente (D-066: "+286 998 B de tablas en RAM con los 7 roles cargados" -- prácticamente el mismo número, coincidencia razonable dado que ambos parten del mismo rango Cyrillic y una técnica de fuente parecida). `MAXUSERFONTS` (cuántas fuentes puede tener el firmware cargadas SIMULTÁNEAMENTE) es justamente lo que decide si los 5 roles cirílicos conviven en RAM con los 5 de Selawik a la vez o se cargan/descargan por pantalla -- ese ajuste, y todo lo demás de dibujo, queda para cuando el mecanismo de moonlit se porte.
+
+### Verificado (sin dibujo, con `check_fonts.py` extendido para no confundirse con estos archivos)
+
+`check_fonts.py --coverage` ahora excluye `*-cyrillic.fnt` de su chequeo por-idioma-por-archivo (un supuesto correcto: un suplemento parcial de rol nunca va a cubrir es/en/fr/de/it por sí solo, y reportar eso como falla sería ruido, no una señal real) -- el gate de `package_dist.sh` sigue exactamente igual que en M-112. Por separado, un chequeo puntual (no cableado a ningún gate todavía, es prematuro sin el mecanismo de tramos) confirmó que las 49 letras cirílicas reales que las cadenas de `metro_lang.c` en ruso necesitan están **100% cubiertas** en las 5 fuentes nuevas -- las otras 50 entradas que el mismo chequeo reporta como "faltantes" son ASCII (espacios, dígitos, puntuación de formato como `%d`) que estas fuentes deliberadamente no traen: esos caracteres seguirán viniendo de la fuente Selawik base cuando el mecanismo de tramos los rutee ahí.
+
+Target y simulador reconstruidos, 0 errores/0 warnings nuevos (los assets/tooling no tocan ningún `.c` de `apps/metro/`); 13 suites de test de host, 0 fallos.
+
+**Archivos**: `firmware/assets/fonts-src/Inter-Regular.ttf`, `Inter-SemiBold.ttf`, `LICENSE-Inter.txt` (nuevos); `LICENSE.txt` → `LICENSE-Selawik.txt` (renombrado); `firmware/assets/fonts/metro-*-cyrillic.fnt` × 5 (nuevos); `gen_fonts.sh` (bloque `CYRILLIC_ROLES`); `check_fonts.py` (exclusión de `*-cyrillic.fnt`); `package_dist.sh` (aviso de Inter en `THIRD-PARTY-NOTICES.txt`).
+
+**Explícitamente NO hecho, a propósito**: nada de `moonlit_textseg.c` portado, ningún código de `apps/metro/` referencia estas fuentes todavía, `MAXUSERFONTS` sin tocar, cobertura de `ru` en el gate de `package_dist.sh` sigue tolerada (`--known-incomplete ru`) porque el dibujo real sigue sin existir. Todo eso espera el aviso de que moonlit cerró su Fase 3.

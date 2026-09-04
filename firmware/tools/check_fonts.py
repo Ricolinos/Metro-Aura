@@ -145,7 +145,16 @@ def cmd_coverage(fonts_dir, lang_path, known_incomplete):
     import glob
     import os
 
-    fonts = sorted(glob.glob(os.path.join(fonts_dir, "*.fnt")))
+    # M-112 (preparación Fase 5): un *-cyrillic.fnt es un SUPLEMENTO
+    # parcial de un rol (solo U+0400-04FF, generado por gen_fonts.sh
+    # desde Inter) -- nunca va a cubrir es/en/fr/de/it por sí solo, y
+    # no es un defecto que lo haga. Se excluye de este chequeo hasta
+    # que exista el mecanismo de dibujo por tramos (moonlit_textseg.c
+    # portado) que sepa combinar "rol base + suplemento de script" --
+    # ahí es donde de verdad hay que decidir qué combinación cuenta
+    # como cobertura completa de un idioma, no aquí.
+    fonts = sorted(f for f in glob.glob(os.path.join(fonts_dir, "*.fnt"))
+                    if "-cyrillic" not in os.path.basename(f))
     if not fonts:
         die(f"no hay .fnt en {fonts_dir}")
 
