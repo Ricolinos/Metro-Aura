@@ -95,15 +95,34 @@ done
 # igual que Semibold en la tabla de Selawik de arriba. Mismo -c por
 # rol que su contraparte Selawik, para que las dos mitades de un
 # mismo rol se sientan iguales cuando se dibujen una junto a la otra.
+# M-113: SIN "display" a propósito -- medido con el probe temporal de
+# font_load_ex() (DECISIONS.md M-113), metro-display-48-cyrillic.fnt
+# pesaba 48 813 B de 92 789 B totales (52,6 %, más de la mitad del
+# presupuesto de las cinco). La supervisora fijó el criterio: si eso
+# pasa, el rol display se queda sin cirílico y los nombres de pivote
+# en ruso (que hoy usan MFONT_DISPLAY) caen a MFONT_TITLE cuando exista
+# el dibujo por tramos -- decisión de diseño, no un límite técnico: a
+# 48px un glifo cirílico de Inter es simplemente grande, y ese tamaño
+# es el que menos frecuentemente se usa para texto largo (encabezados
+# de una sola palabra, no listas).
 CYRILLIC_ROLES=(
-  "display:Inter-Regular.ttf:48:1"
   "title:Inter-Regular.ttf:28:1"
   "list:Inter-Regular.ttf:20:1"
   "listsel:Inter-SemiBold.ttf:20:1"
   "caption:Inter-Regular.ttf:14:0"
 )
-CYRILLIC_START=1024 # 0x400
-CYRILLIC_LIMIT=1279 # 0x4FF
+# M-113 (ajustado tras revision de la supervisora): el bloque Cyrillic
+# completo (1024-1279, 256 codigos) paga tabla para letras que el ruso
+# de esta UI nunca usa (ucraniano/serbio, variantes historicas). El
+# ruso real son 66 caracteres: Ё/ё (U+0401/U+0451) + А-я (U+0410-044F,
+# mayusculas y minusculas seguidas) -- 1025-1105 en decimal es el
+# rango MINIMO que los cubre a los 66 de un tramo contiguo (el hueco
+# 1030-1039 entre Ё y А, y 1104 entre я y ё, quedan adentro igual,
+# hueco de tabla pequeno e inevitable con un formato de rango denso).
+# Ucraniano/serbio (letras fuera de este tramo, ej. Є/і/ў) NO quedan
+# cubiertos -- anotado, no es un objetivo de esta ronda.
+CYRILLIC_START=1025 # 0x401, Ё
+CYRILLIC_LIMIT=1105 # 0x451, ё
 
 for entry in "${CYRILLIC_ROLES[@]}"; do
   IFS=':' read -r role srcfont size spacing <<< "$entry"
