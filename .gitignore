@@ -22,3 +22,7 @@ firmware/tools/.venv/
 
 # Binarios de los tests host-side (make -C firmware/rockbox/apps/metro/test)
 firmware/rockbox/apps/metro/test/build/
+
+# Config local de la herramienta MCP Serena (indexado/cache de sesión,
+# como .vscode/ -- no es contenido del proyecto)
+.serena/
