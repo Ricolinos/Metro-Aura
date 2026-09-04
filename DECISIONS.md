@@ -4061,11 +4061,11 @@ Rediseñado con el mismo criterio que moonlit documentó para su propio D-081: `
 ### Lista de verificación en hardware -- ajustes esta fase
 
 - [ ] **M-114 (cirílico)**: confirmar en el LCD real que el cirílico de Inter (`title-28-cyrillic`/`list-20-cyrillic`/`listsel-20-cyrillic`/`caption-14-cyrillic`) se ve nítido junto al Selawik primario en la misma fila (p.ej. "20 min" al lado de una etiqueta cirílica) -- el simulador ya confirmó que las dos fuentes conviven sin solaparse, pero el contraste de dos tipografías distintas en el panel físico es otra cosa.
-- [ ] **M-114 (Ahora Suena en ruso)**: pendiente de capturar en cualquier entorno -- confirmar en hardware real (con una biblioteca real sincronizada) que título/artista/álbum en cirílico se ven bien en Ahora Suena, ya que el simulador no lo logró en este intento.
+- [x] ~~**M-114 (Ahora Suena en ruso)**: pendiente de capturar en cualquier entorno.~~ **RESUELTO en M-116**: capturado en el simulador (`f6-nowplaying-ru.png`). No era un límite del arnés -- la biblioteca de prueba estaba vacía. Deja de ser un pendiente de hardware.
 
-**Archivos**: `metro_textseg.c/.h`, `test/test_textseg.c` (nuevos); `metro_fonts.c/.h` (carga + accesores cirílicos), `metro_draw.c` (dibujo por tramos, único punto de dibujo de texto), `apps/SOURCES` (nueva unidad de compilación), `test/Makefile` (nuevo test); `firmware/export/font.h` (`MAXUSERFONTS` 12→16, único Rockbox-core fuera de `apps/metro/`), `MODIFICATIONS.md` (entrada M-114); `check_fonts.py` (categorías primaria/cirílica), `package_dist.sh` (retira `--known-incomplete ru`, suma Inter a `THIRD-PARTY-NOTICES.txt`), `sim_shot.sh` (falla visible en carga de fuente).
+**Archivos**: `metro_textseg.c/.h`, `test/test_textseg.c` (nuevos); `metro_fonts.c/.h` (carga + accesores cirílicos), `metro_draw.c` (dibujo por tramos; se creía el **único** punto de dibujo de texto, y no lo era -- `metro_draw_tile()` se quedó con un `lcd_putsxy()` suelto, corregido en M-116), `apps/SOURCES` (nueva unidad de compilación), `test/Makefile` (nuevo test); `firmware/export/font.h` (`MAXUSERFONTS` 12→16, único Rockbox-core fuera de `apps/metro/`), `MODIFICATIONS.md` (entrada M-114); `check_fonts.py` (categorías primaria/cirílica), `package_dist.sh` (retira `--known-incomplete ru`, suma Inter a `THIRD-PARTY-NOTICES.txt`), `sim_shot.sh` (falla visible en carga de fuente).
 
-**Pendiente**: matriz completa 6×6 (falta "Ahora Suena" en las seis idiomas) si el dueño la pide; verificación en hardware de las dos filas de arriba. Sin tag, sin release -- tag sugerido sigue siendo `v0.7.1` (M-112), ahora con M-113/M-114 sumados a lo que recogería.
+**Pendiente**: ~~matriz completa 6×6~~ cerrada en M-116 (36/36); verificación en hardware de la primera fila de arriba (nitidez del cirílico en el LCD real). Sin tag, sin release -- tag sugerido sigue siendo `v0.7.1` (M-112), ahora con M-113/M-114 sumados a lo que recogería.
 
 ## M-115 — `gen_test_media.sh`: la pista de Cultura Profética vivía fuera de `Music/` desde R5-F3, "Ahora Suena" seguía sin capturarse
 
@@ -4091,7 +4091,7 @@ Con el fix de arriba aplicado, el pivot "canciones" **seguía** vacío. Investig
 
 Navegando artista → álbum → pista (`SELECT,RIGHT,SELECT,SELECT,SELECT`) se llega a la pantalla real de Ahora Suena: el encabezado **"сейчас играет"** (Ahora Suena) se dibuja correctamente en cirílico. Pero el título/artista de la pista se queda en un tile "?" sin texto, incluso esperando hasta 90 s de asentamiento (`docs/screenshots/ajustes-2/f6-nowplaying-ru.png`) -- no parece un problema de tiempo. La hipótesis más probable, no confirmada a fondo por rendimiento decreciente: el simulador SDL headless de este entorno no arranca reproducción de audio de verdad (sin salida de audio real que inicializar), así que `audio_current_track()` nunca devuelve una pista válida para que Ahora Suena dibuje su título -- un límite del arnés de pruebas, no del código de dibujo de esta ronda. El propio encabezado de la pantalla (cirílico, correcto) usa el mismo `metro_draw_text()`/`metro_font_cyrillic_id()` que el resto de la UI ya verificada; no hay ninguna señal de que el título fallaría distinto si la reproducción arrancara de verdad.
 
-**Matriz 6×6 queda en 32/36** (30 de M-114 + el pivot de artistas + el intento de Ahora Suena, este último parcial). Se decide no seguir insistiendo: cerrar esta investigación es responsabilidad razonable de la lista de verificación en hardware, no de más tiempo de simulador headless.
+~~**Matriz 6×6 queda en 32/36**~~ -- **anulado por M-116**: la matriz quedó en 36/36 en el propio simulador. Lo que faltaba no era tiempo de arnés sino reinstalar los fixtures de música.
 
 ### Verificado
 
@@ -4099,7 +4099,7 @@ Target/simulador sin cambios de código C esta fase (solo `gen_test_media.sh`, u
 
 **Archivos**: `gen_test_media.sh` (fixture de Cultura Profética/Profetica reubicado después de `rm -rf $MUSIC_DIR`, carpeta sin acento); dos capturas nuevas/actualizadas en `docs/screenshots/ajustes-2/`.
 
-**Pendiente para la lista de verificación en hardware**: confirmar en un iPod real, con una biblioteca sincronizada de verdad (reproducción de audio real, no el simulador headless), que Ahora Suena muestra título/artista/álbum en cirílico correctamente -- es la única pantalla de las seis que esta ronda no pudo verificar visualmente por una limitación del arnés, no del firmware.
+~~**Pendiente para la lista de verificación en hardware**: confirmar en un iPod real que Ahora Suena muestra título/artista/álbum en cirílico.~~ **ANULADO por M-116**: no había tal limitación del arnés; la pantalla ya quedó verificada en el simulador en es/ru/de.
 
 ## M-116 — La hipótesis del "límite del arnés" era falsa: la biblioteca estaba vacía, y las iniciales cirílicas de los tiles sí tenían un bug
 
@@ -4144,3 +4144,19 @@ Simulador reconstruido, 0 errores. Suite host completa en verde, incluido `test_
 **Archivos**: `metro_draw.c` (`metro_draw_tile()` por tramos). Ningún archivo de Rockbox fuera de `apps/metro/` -- sin entrada nueva en `MODIFICATIONS.md`.
 
 **Corrección a M-115**: su sección "Ahora Suena: header cirílico confirmado, título/artista NO confirmados" queda anulada por esta entrada; no hay límite del arnés, no hay pendiente de hardware por ese motivo, y la matriz 6×6 queda en 36/36.
+
+### Cierre de la ronda "ajustes 2" (M-109 … M-116)
+
+Con M-116 la ronda queda cerrada. Lo que sigue pendiente **de verdad** para la
+lista de verificación en hardware, ya sin el ítem que M-115 abrió por una causa
+inexistente:
+
+- [ ] **M-109 (rueda continua)**: girar la rueda física sin levantar el dedo a lo largo de ~20 fotos en el visor. El arnés headless demuestra el ciclo `REPEAT` sintético, no una rueda real sostenida.
+- [ ] **M-114 (nitidez del cirílico)**: en el LCD real, que el cirílico de Inter conviva legible con el Selawik primario en la misma fila (p. ej. "20 min" junto a una etiqueta cirílica). El simulador ya confirmó que no se solapan; el contraste entre dos tipografías en el panel físico es otra cosa.
+
+**Anulado, no pendiente**: "Ahora Suena en cirílico" (M-114/M-115) — verificado en
+el simulador en `es`/`ru`/`de`, ver arriba.
+
+**Estado de release**: sin tag y sin release. Tag sugerido `v0.7.1` (desde M-112),
+que recogería M-109…M-116. Queda a la autorización del dueño; este repo no
+publica nada por su cuenta.
