@@ -94,7 +94,13 @@ SECTIONS
        *(.stack)
        stackbegin = .;
        _stackbegin = .;
-       . += 0x2000;
+       /* Metro (M-101): main thread stack 8 KB -> 12 KB. The UI thread
+          carries frames that Rockbox never had (JPEG decode + tagcache
+          walks under one lock, master-art derivation), and Aura-Firmware
+          -- same app.lds, same SoC -- took a real `Stkov main` panic with
+          the 8 KB figure. Core IRAM is 48 KB (0xC000); with +0x1000 the
+          FIQ stack still ends at 0xb530, leaving ~2.7 KB free. */
+       . += 0x3000;
        stackend = .;
        _stackend = .;
        _irqstackbegin = .;

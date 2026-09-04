@@ -168,6 +168,9 @@ static const char *const strings_es[LANG_COUNT] = {
     [LANG_FAMILY_METRO]          = "Metro",
     [LANG_FAMILY_MOONLIT]        = "moonlit.aura",
     [LANG_DIALOG_SWITCH_FMT]     = "¿cambiar a %s y reiniciar?",
+
+    [LANG_ABOUT_STACK]    = "pila principal",
+    [LANG_ABOUT_STACK_NA] = "n/d en el simulador",
 };
 
 static const char *const strings_en[LANG_COUNT] = {
@@ -315,6 +318,9 @@ static const char *const strings_en[LANG_COUNT] = {
     [LANG_FAMILY_METRO]          = "Metro",
     [LANG_FAMILY_MOONLIT]        = "moonlit.aura",
     [LANG_DIALOG_SWITCH_FMT]     = "switch to %s and restart?",
+
+    [LANG_ABOUT_STACK]    = "main stack",
+    [LANG_ABOUT_STACK_NA] = "n/a on the simulator",
 };
 
 void metro_lang_set(enum metro_language lang)

@@ -320,6 +320,15 @@ void metro_main(void)
 
     metro_disk_handoff();
 
+    /* M-102 (contract v18): if the derived caches on this disk were
+     * built by rules older than this firmware's, they go now -- BEFORE
+     * the builder thread exists, so nothing is writing masters into a
+     * directory that is about to be emptied. It is the only moment in
+     * the boot where that is true, and it is why this call sits between
+     * the handoff and the builder instead of riding
+     * metro_apply_hygiene() with the rest of the one-shot disk work. */
+    metro_master_art_check_format_version();
+
     /* M-097 (contract v16): the shared master art cache builds itself
      * in the background from here on -- no screen, low priority, idle
      * only (metro_master_art_builder.h). */

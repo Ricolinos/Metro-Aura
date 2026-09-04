@@ -84,6 +84,20 @@ la ampliación de `METRO_MAX_INJECT_BUTTONS` que este archivo ya traía:
 herramienta de pruebas, solo compila en el simulador, sin ningún
 impacto en el binario de hardware.
 
+**M-101 (2026-09-04):** sufijo `+HOLD` en cualquier nombre de botón de
+`METRO_SIM_BUTTONS` (p. ej. `SELECT+HOLD`). El inyector solo sabía hacer
+press-then-release, así que **ningún gesto de botón sostenido de Metro**
+(MENU mantenido = ir al hub, SELECT mantenido en el reproductor =
+aleatorio, SELECT mantenido en "acerca de" = revelar la marca de agua de
+pila) se podía verificar sin la ventana SDL interactiva. Con el sufijo la
+secuencia posteada es `press → BUTTON_REPEAT → BUTTON_REL`, que es lo que
+el driver del 6G produce cuando la pulsación pasa el umbral de repetición
+— y por eso el `BUTTON_REL` final ya no casa con el mapeo corto (su
+prebutton exige que el último botón haya sido el código a secas). Mismo
+carácter que los tokens `USB_INSERT` (M-039) y `POWEROFF` que este archivo
+ya traía: postear lo que el driver hubiera posteado. Herramienta de
+pruebas, solo compila en el simulador.
+
 ## `apps/metro/` — código nuevo, no una modificación
 
 Todo el árbol `firmware/rockbox/apps/metro/` es código **nuevo**,
@@ -299,6 +313,40 @@ en `global_settings.tagcache_db_path` desde `metro_apply_hygiene()`,
 que `apps/main.c` ya llama (F1, M-019) entre `settings_load()` e
 `init_tagcache()` — la ventana exacta que necesita. No se tocó
 `apps/main.c` ni `apps/tagcache.c`. Ver `DECISIONS.md` M-095.
+
+### M-101 (2026-09-04): pila del hilo principal 8 KB -> 12 KB
+
+- `firmware/target/arm/s5l8702/app.lds` (M-101): la sección `.stack`
+  pasa de `. += 0x2000` a `. += 0x3000`. Comentario inline
+  `Metro (M-101)` en el punto exacto. La IRAM de core mide 48 KB
+  (`IRAMSIZE`, `0xC000`); con el aumento `_fiqstackend` queda en
+  `0xb530` — verificado en `firmware/build-ipod6g/rockbox.map` —, o sea
+  2 768 B libres. El archivo es idéntico en las tres familias
+  (Aura-Firmware, Metro-Aura, moonlit.aura) y el aumento se aplica a
+  las tres en la misma ronda: la causa es común (el hilo de UI carga
+  marcos que Rockbox nunca tuvo — decode JPEG y recorridos de tagcache
+  bajo un solo lock) y Aura-Firmware ya se comió un `Stkov main` real
+  con la cifra de 8 KB.
+- `apps/plugins/mpegplayer/mpegplayer.make` (M-101): `OTHER_INC +=
+  -I$(APPSDIR)/metro`, junto al `MPEGCFLAGS +=` que ya había puesto
+  M-059. Comentario inline `Metro (M-101)`. La pasada de dependencias
+  (`mkdepfile`, `tools/functions.make:57`) arma su línea de comandos con
+  `PPCFLAGS` + `OTHER_INC`, **no** con `MPEGCFLAGS`: sin esta línea
+  `metro_palette.h` no se resuelve ahí y el `-MG` lo convierte en un
+  `$(BUILDDIR)/metro_palette.h` fantasma que ninguna regla sabe
+  construir. Solo se manifiesta en un directorio de build cuyo
+  `make.dep` se genere DESPUÉS de M-059 — por eso llevaba desde el
+  2026-08-19 escondido: el `firmware/build-ipod6g/` del árbol de trabajo
+  arrastra un `make.dep` anterior a esa fase. Encontrado al crear
+  `firmware/build-ipod6g-stack/` desde cero para
+  `firmware/tools/stack_report.py`. Sin efecto sobre el binario: solo
+  cambia la pasada de dependencias.
+
+- `uisimulator/common/sim_tasks.c` (M-101): sufijo `+HOLD` en
+  `METRO_SIM_BUTTONS` — ver la sección "Excepción" de este archivo, donde
+  ya vive el registro de los cambios de este archivo de automatización.
+
+Ver `DECISIONS.md` M-101.
 
 ### M-097 (2026-08-26)
 

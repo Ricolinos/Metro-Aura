@@ -186,6 +186,13 @@ enum metro_lang_id {
     LANG_FAMILY_MOONLIT,
     LANG_DIALOG_SWITCH_FMT,
 
+    /* M-101: fila oculta de diagnostico en "acerca de" -- marca de agua
+     * de la pila del hilo principal (plan maestro de la ronda,
+     * seccion E.4). Se revela con SELECT sostenido sobre la fila de
+     * version; en el simulador esta siempre visible. */
+    LANG_ABOUT_STACK,
+    LANG_ABOUT_STACK_NA,
+
     LANG_COUNT
 };
 

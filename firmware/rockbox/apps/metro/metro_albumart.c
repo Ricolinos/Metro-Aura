@@ -275,6 +275,26 @@ bool metro_albumart_load_background(void)
     return true;
 }
 
+/* M-102: decodifica `path` y deja en `master` un cuadrado de px*px por
+ * "llenar y recortar centrado" -- la MISMA primitiva
+ * (metro_master_art_cover()) que produce cualquier maestra del
+ * contrato. `FORMAT_KEEP_ASPECT` en el decode es a propósito: ahí sirve
+ * para que el decodificador no deforme nada al bajar de tamaño; el
+ * recorte al cuadrado lo hace metro_master_art_cover() después, con la
+ * imagen ya proporcionada. Sin escribir nada a disco: quién guarda (y
+ * con qué clave) lo decide el llamador. */
+static bool decode_square_master(const char *path, fb_data *master, int px)
+{
+    struct bitmap bm;
+
+    if (!decode_file_into(path, s_scratch, sizeof(s_scratch), px, px,
+                          FORMAT_NATIVE | FORMAT_RESIZE | FORMAT_KEEP_ASPECT, &bm))
+        return false;
+    metro_master_art_cover((const fb_data *)s_scratch, bm.width, bm.height,
+                           master, px, px);
+    return true;
+}
+
 bool metro_albumart_load_background_file(const char *path, long mtime)
 {
     bool ok = false;
@@ -311,20 +331,12 @@ bool metro_albumart_load_background_file(const char *path, long mtime)
                 break;
             /* FALLTHROUGH */
         case METRO_MASTER_ART_MISSING:
-        {
-            struct bitmap bm;
-            ok = decode_file_into(path, s_scratch, sizeof(s_scratch), px, px,
-                                  FORMAT_NATIVE | FORMAT_RESIZE | FORMAT_KEEP_ASPECT, &bm);
+            ok = decode_square_master(path, master, px);
             if (ok)
-            {
-                metro_master_art_cover((const fb_data *)s_scratch, bm.width, bm.height,
-                                       master, px, px);
                 metro_master_art_write(ARTISTS_SUBDIR, key, master, px);
-            }
             else
                 metro_master_art_write_none(ARTISTS_SUBDIR, key);
             break;
-        }
         case METRO_MASTER_ART_NONE:
         default:
             ok = false;
@@ -335,10 +347,24 @@ bool metro_albumart_load_background_file(const char *path, long mtime)
     }
     else
     {
-        /* Sin FORMAT_KEEP_ASPECT, igual que load_background(): llena los
-         * 320x240 y recorta, que es el punto de un fondo. */
-        ok = decode_file_into(path, s_bg_scratch, sizeof(s_bg_scratch),
-                              LCD_WIDTH, LCD_HEIGHT, FORMAT_NATIVE | FORMAT_RESIZE, NULL);
+        /* M-102 (contrato v18): sin mtime no hay clave, así que no hay
+         * maestra que leer ni escribir -- pero la GEOMETRÍA es la misma
+         * que la del camino normal: cuadrado por "llenar y recortar
+         * centrado" y de ahí bilineal a 320x240.
+         *
+         * Lo que había antes aquí era un decode directo a 320x240 con
+         * `FORMAT_NATIVE | FORMAT_RESIZE` y SIN `FORMAT_KEEP_ASPECT`:
+         * eso ESTIRA la imagen a la caja, no la recorta. Con una foto
+         * 4:3 o 16:9 -- justo las que el dueño reportó -- el fondo salía
+         * deformado, y era el único camino de imagen de Metro que no
+         * pasaba por el recorte cuadrado de la maestra (hallazgo 2 del
+         * plan maestro de la ronda). */
+        fb_data *master = metro_master_art_scratch();
+        const int px = METRO_MASTER_ART_ARTIST_PX;
+
+        ok = decode_square_master(path, master, px);
+        if (ok)
+            upscale_master_to_bg(master, px);
     }
     metro_master_art_unlock();
 

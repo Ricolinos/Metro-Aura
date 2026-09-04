@@ -70,6 +70,22 @@ uint32_t metro_master_art_crc32(const void *buf, size_t len);
 void metro_master_art_format_key(char prefix, uint32_t crc, long mtime,
                                  char *out, size_t outsz);
 
+/* M-102 (contract v18): the <mtime> of an ALBUM key is
+ * max(mtime of the representative track, mtime of the sibling
+ * cover.jpg if there is one).
+ *
+ * Why it is not just the track's: Studio can rewrite an album's
+ * cover.jpg without touching a single music file -- a better scan, a
+ * corrected aspect ratio, a re-fetch. With the track's mtime alone the
+ * key never moves, so the old master and the old tile stay valid
+ * forever and the new cover is never seen. That is hypothesis (a) of
+ * D-338/M-096/D-055, and this is what closes it.
+ *
+ * A missing cover.jpg is passed as 0 (or any value <= 0), which leaves
+ * the key exactly as it was before v18 -- so a library with embedded
+ * art only does not churn its whole cache on the upgrade. */
+long metro_master_art_album_mtime(long track_mtime, long cover_mtime);
+
 /* Header <-> fields. pack() always succeeds; parse() returns false on
  * a bad magic or a zero dimension. flags/reserved are written as 0 and
  * ignored on read (forward-compatible). */

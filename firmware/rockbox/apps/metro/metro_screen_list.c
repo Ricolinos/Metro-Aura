@@ -243,6 +243,12 @@ void metro_screen_list_handle(int action, int steps)
                 }
             }
             break;
+        case MACT_SELECT_HOLD:
+            /* M-101: sin CONTINUUM ni push -- un SELECT sostenido no
+             * navega, solo deja que el pivot mute su propio estado. */
+            if (pivot->on_select_hold)
+                pivot->on_select_hold(pivot->ctx, metro_nav_sel(&s_nav));
+            break;
         case MACT_BACK:
             metro_screen_list_pop();
             break;

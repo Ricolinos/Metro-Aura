@@ -87,8 +87,15 @@ bool metro_albumart_load_background(void);
  * pantalla a la vez, por construcción. */
 /* M-097: `mtime` > 0 enables the artists master
  * (/.aura/art/artists/r-<crc(path)>.<mtime>.art, contract v16): read
- * or decode-and-write at 130px, then scaled up like the cover. With
- * mtime <= 0 it decodes the file at screen size as before. */
+ * or decode-and-write at 130px, then scaled up like the cover.
+ *
+ * M-102 (contract v18): with mtime <= 0 there is no key, so nothing is
+ * read from or written to the master cache -- but the GEOMETRY is now
+ * identical anyway (decode, fill+center-crop to a 130px square,
+ * bilinear up to the screen). Before v18 that branch decoded straight
+ * to 320x240 without FORMAT_KEEP_ASPECT, i.e. it STRETCHED the image;
+ * it was the last image path in Metro that did not go through the
+ * square crop. */
 bool metro_albumart_load_background_file(const char *path, long mtime);
 
 /* Valid only right after metro_albumart_load_background() -- or

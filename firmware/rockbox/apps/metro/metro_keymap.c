@@ -46,6 +46,10 @@ static const struct button_mapping list_mapping[] = {
     { MACT_PIVOT_PREV, BUTTON_LEFT  | BUTTON_REL,          BUTTON_LEFT  },
     { MACT_PIVOT_NEXT, BUTTON_RIGHT | BUTTON_REL,          BUTTON_RIGHT },
     { MACT_SELECT,     BUTTON_SELECT | BUTTON_REL,         BUTTON_SELECT },
+    /* M-101: SELECT sostenido. Solo lo consume el pivot que declare
+     * on_select_hold (hoy, "acerca de"); en cualquier otro la accion
+     * llega a metro_screen_list_handle() y no hace nada. */
+    { MACT_SELECT_HOLD, BUTTON_SELECT | BUTTON_REPEAT,     BUTTON_NONE },
     { MACT_BACK,       BUTTON_MENU | BUTTON_REL,           BUTTON_MENU },
     { MACT_HOME,       BUTTON_MENU | BUTTON_REPEAT,        BUTTON_NONE },
     /* R4/FA-8 (M-071): igual que en el hub. Deliberadamente NO se

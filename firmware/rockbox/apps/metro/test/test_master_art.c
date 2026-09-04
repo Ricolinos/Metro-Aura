@@ -40,6 +40,50 @@ static void test_key_format(void)
     CHECK(!strcmp(key, "r-00000000.7"));
 }
 
+/* M-102 (contrato v18): el <mtime> de una clave de album es el MAYOR
+ * entre el de la pista y el de su cover.jpg hermano. */
+static void test_album_mtime_v18(void)
+{
+    char key[METRO_MASTER_ART_KEY_LEN];
+
+    /* Sin cover.jpg (0): la clave es exactamente la de v16 -- una
+     * biblioteca con solo caratula embebida no revuelve su cache al
+     * actualizar. */
+    CHECK(metro_master_art_album_mtime(1787198376L, 0L) == 1787198376L);
+
+    /* cover.jpg reescrito DESPUES de la pista: manda el cover, que es
+     * justo el caso que la clave de v16 no veia (hipotesis (a) de
+     * D-338/M-096). */
+    CHECK(metro_master_art_album_mtime(1787198376L, 1800000000L) == 1800000000L);
+
+    /* cover.jpg mas viejo que la pista: manda la pista. */
+    CHECK(metro_master_art_album_mtime(1800000000L, 1787198376L) == 1800000000L);
+
+    /* Iguales: idempotente, sin churn. */
+    CHECK(metro_master_art_album_mtime(42L, 42L) == 42L);
+
+    /* Un mtime negativo (lectura fallida) nunca gana sobre el de la
+     * pista: una clave no puede depender de que un read falle. */
+    CHECK(metro_master_art_album_mtime(42L, -1L) == 42L);
+
+    /* Y la clave resultante se formatea igual que cualquier otra. */
+    metro_master_art_format_key('a', 0x031b464bu,
+                                metro_master_art_album_mtime(1787198376L, 1800000000L),
+                                key, sizeof(key));
+    CHECK(!strcmp(key, "a-031b464b.1800000000"));
+
+    /* La clave del MISMO album cambia solo porque cambio el cover: es
+     * lo que desaloja la maestra vieja y el tile de 80 px derivados de
+     * ella. */
+    {
+        char before[METRO_MASTER_ART_KEY_LEN];
+        metro_master_art_format_key('a', 0x031b464bu,
+                                    metro_master_art_album_mtime(1787198376L, 0L),
+                                    before, sizeof(before));
+        CHECK(strcmp(before, key) != 0);
+    }
+}
+
 static void test_px_for_subdir(void)
 {
     CHECK(metro_master_art_px_for_subdir("albums") == 130);
@@ -155,6 +199,7 @@ int main(void)
 {
     test_crc32_matches_rockbox();
     test_key_format();
+    test_album_mtime_v18();
     test_px_for_subdir();
     test_header_roundtrip();
     test_box_down_uniform_and_average();

@@ -86,6 +86,13 @@ struct metro_pivot {
      * actively wrong advice if it said "sincroniza con Aura Studio" --
      * sets this to its own lang id instead. */
     enum metro_lang_id empty_message;
+
+    /* M-101: appended at the end for the same reason as every field
+     * above -- positional initializers stay valid and default to NULL,
+     * which means "SELECT held does nothing here", the behaviour every
+     * pivot had before. Only "acerca de" sets it today (reveals the
+     * main-stack watermark row). */
+    void (*on_select_hold)(void *ctx, int index);
 };
 
 struct metro_page {

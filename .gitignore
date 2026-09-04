@@ -2,6 +2,7 @@
 firmware/build-sim/
 firmware/build-ipod6g/
 firmware/build-ipod6g-boot/
+firmware/build-ipod6g-stack/
 firmware/toolchain/
 firmware/test-media/
 

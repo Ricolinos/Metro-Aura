@@ -357,6 +357,49 @@ void metro_settings_master_art_dir(const char *subdir, char *out, size_t outsz)
     snprintf(out, outsz, "%s/%s", AURA_SHARED_ART_DIR, subdir);
 }
 
+void metro_settings_master_art_format_path(char *out, size_t outsz)
+{
+    snprintf(out, outsz, "%s/format.txt", AURA_SHARED_ART_DIR);
+}
+
+/* M-102: like remove_flat_dir() above but it counts what it deletes and
+ * it does NOT rmdir() the root it was handed -- the caller is about to
+ * write format.txt inside /.aura/art, and re-creating a directory it
+ * just removed would be pointless churn on FAT. Subdirectories DO go
+ * (albums/artists/photos are rebuilt on demand by ensure_dir()). */
+static int purge_dir_contents(const char *dir, bool remove_self)
+{
+    DIR *d = opendir(dir);
+    struct DIRENT *entry;
+    char path[MAX_PATH];
+    int removed = 0;
+
+    if (!d)
+        return 0;
+    while ((entry = readdir(d)) != NULL)
+    {
+        if (!strcmp(entry->d_name, ".") || !strcmp(entry->d_name, ".."))
+            continue;
+        join_path(path, sizeof(path), dir, entry->d_name);
+        if (dir_get_info(d, entry).attribute & ATTR_DIRECTORY)
+            removed += purge_dir_contents(path, true);
+        else if (remove(path) == 0)
+            removed++;
+    }
+    closedir(d);
+    if (remove_self)
+        rmdir(dir);
+    return removed;
+}
+
+int metro_settings_purge_derived_caches(void)
+{
+    int removed = purge_dir_contents(AURA_SHARED_ART_DIR, false);
+
+    removed += purge_dir_contents(AURA_SHARED_THUMBS_DIR, true);
+    return removed;
+}
+
 /* R3-F3/DD-6 (M-064): Studio's own index + photo cache -- distinct
  * from metro_settings_metro_cache_dir("artists", ...) above, which is
  * Metro's OWN derived 80x80 tile cache

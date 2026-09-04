@@ -19,11 +19,48 @@
  ****************************************************************************/
 #include <stdio.h>
 #include <stddef.h>
+#include <stdint.h>
+#include <stdbool.h>
+
+#include "config.h"
+#include "thread.h"
+#include "version.h"
 
 #include "metro_screen_about.h"
 #include "metro_device.h"
 #include "metro_manifest.h"
 #include "metro_lang.h"
+
+/* M-101: marca de agua de la pila del hilo principal (plan maestro de
+ * la ronda homologacion, seccion E.4). No hay forma de que el dueno
+ * confirme en el iPod que el aumento de 8 -> 12 KB de app.lds alcanza,
+ * salvo esperar otro panic; esta fila lo dice sin esperar nada.
+ *
+ * Se apoya en thread_get_debug_info(), la MISMA API publica que usa el
+ * menu de depuracion de Rockbox (apps/debug_menu.c:184) -- no se copia
+ * su lectura de la marca DEADBEEF, que vive en un header privado del
+ * kernel (firmware/kernel/thread-internal.h). El tamano total sale de
+ * los simbolos del enlazador, que son exactamente los que
+ * __get_main_stack() le entrega al hilo principal en init_threads().
+ *
+ * En el simulador la pila del hilo principal es la del hilo de SDL, que
+ * el sistema operativo administra: Rockbox ni siquiera compila los
+ * campos (struct thread_debug_info los envuelve en #ifndef
+ * HAVE_SDL_THREADS). Ahi la fila existe siempre -- para poder
+ * capturarla -- pero dice "n/d en el simulador". */
+#ifndef HAVE_SDL_THREADS
+#define METRO_ABOUT_HAS_STACK_WATERMARK 1
+#endif
+
+/* La fila esta OCULTA por defecto en hardware: se revela con SELECT
+ * sostenido sobre la fila de version y se vuelve a ocultar con otro.
+ * En el simulador arranca visible porque no hay gesto sostenido comodo
+ * en la ventana SDL y porque es la unica forma de capturarla. */
+#ifdef SIMULATOR
+static bool s_show_stack = true;
+#else
+static bool s_show_stack = false;
+#endif
 
 /* Row layout: device name, then either "based on rockbox" straight
  * after 1 "not synced yet" row, or (if sync_summary.cfg exists, R2-F1/
@@ -54,7 +91,38 @@ static int about_count(void *ctx)
 {
     const metro_manifest_t *m = metro_manifest_cached();
     (void)ctx;
-    return 2 + (m ? synced_row_count(m) : 1);
+    return 2 + (m ? synced_row_count(m) : 1) + (s_show_stack ? 1 : 0);
+}
+
+/* Indice de la fila de version ("basado en rockbox"), la ultima salvo
+ * cuando la de pila esta revelada debajo. */
+static int version_row_index(void)
+{
+    const metro_manifest_t *m = metro_manifest_cached();
+
+    return 1 + (m ? synced_row_count(m) : 1);
+}
+
+/* M-101: "62 % de 12 KB". El porcentaje es la marca de agua real (el
+ * maximo que el hilo llego a usar), no el uso instantaneo. */
+static const char *stack_subtitle(char *buf, size_t bufsz)
+{
+#ifdef METRO_ABOUT_HAS_STACK_WATERMARK
+    extern uintptr_t stackbegin[];
+    extern uintptr_t stackend[];
+    struct thread_debug_info info;
+    size_t total = (uintptr_t)stackend - (uintptr_t)stackbegin;
+
+    if (thread_get_debug_info(thread_self(), &info) > 0 && total > 0)
+    {
+        snprintf(buf, bufsz, "%u %% de %u KB",
+                 info.stack_usage, (unsigned)(total / 1024));
+        return buf;
+    }
+#endif
+    (void)buf;
+    (void)bufsz;
+    return metro_lang_str(LANG_ABOUT_STACK_NA);
 }
 
 static void about_get_row(void *ctx, int index, struct metro_row *out)
@@ -164,7 +232,21 @@ static void about_get_row(void *ctx, int index, struct metro_row *out)
         }
     }
 
+    if (s_show_stack && index > version_row_index())
+    {
+        static char stackbuf[32];
+
+        out->title = metro_lang_str(LANG_ABOUT_STACK);
+        out->subtitle = stack_subtitle(stackbuf, sizeof(stackbuf));
+        return;
+    }
+
+    /* M-101: la version del build va de subtitulo. Es la fila sobre la
+     * que el gesto sostenido revela la pila, asi que tiene que decir
+     * QUE version esta corriendo -- si no, la marca de agua que reporte
+     * el dueno no se puede atribuir a un binario concreto. */
     out->title = metro_lang_str(LANG_ABOUT_BASED_ON_ROCKBOX);
+    out->subtitle = rbversion;
 }
 
 static void about_on_select(void *ctx, int index)
@@ -173,6 +255,18 @@ static void about_on_select(void *ctx, int index)
     (void)index;
 }
 
+/* M-101: SELECT sostenido sobre la fila de version revela/oculta la
+ * marca de agua de la pila. Sobre cualquier otra fila no hace nada --
+ * un gesto oculto no debe disparar desde donde el usuario no lo espera. */
+static void about_on_select_hold(void *ctx, int index)
+{
+    (void)ctx;
+
+    if (index == version_row_index())
+        s_show_stack = !s_show_stack;
+}
+
 const struct metro_pivot metro_screen_about_pivot = {
-    LANG_PIVOT_ABOUT, about_count, about_get_row, about_on_select, NULL
+    LANG_PIVOT_ABOUT, about_count, about_get_row, about_on_select, NULL,
+    0, NULL, 0, about_on_select_hold
 };

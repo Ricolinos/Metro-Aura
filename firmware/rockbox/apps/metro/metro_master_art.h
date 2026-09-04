@@ -90,4 +90,17 @@ void metro_master_art_write_none(const char *subdir, const char *key);
  * collision can only KEEP a file, never delete a live one. */
 int metro_master_art_gc(const char *subdir, const uint32_t *live_crcs, int n);
 
+/* M-102 (contract v18): reads /.aura/art/format.txt and, if it is
+ * missing or names a version older than
+ * AURA_SHARED_ART_FORMAT_VERSION, throws away every derived image
+ * cache on the disk and writes this firmware's version. Returns the
+ * number of files removed (0 when the disk was already current, which
+ * is every boot but the first after an upgrade).
+ *
+ * Runs once at startup, BEFORE the background builder thread exists --
+ * otherwise the builder would be writing masters into a directory that
+ * is about to be emptied. It does not need the decode lock for the
+ * same reason. */
+int metro_master_art_check_format_version(void);
+
 #endif /* METRO_MASTER_ART_H */

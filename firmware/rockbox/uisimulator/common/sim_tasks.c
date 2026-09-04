@@ -99,10 +99,27 @@ static long autodump_settle_ticks = 0;
  * SYS_POWEROFF. */
 #define METRO_INJECT_POWEROFF_CODE (-3L)
 
+/* Metro (M-101): sufijo "+HOLD" en cualquier nombre de boton de
+ * METRO_SIM_BUTTONS (p.ej. "SELECT+HOLD") -- una pulsacion SOSTENIDA.
+ * El injector solo sabia hacer press-then-release, asi que ningun gesto
+ * "boton mantenido" de Metro (MENU held = ir al hub, SELECT held en el
+ * reproductor = aleatorio, SELECT held en "acerca de" = revelar la
+ * marca de agua de pila) se podia verificar sin la ventana SDL. Con el
+ * sufijo, la secuencia posteada es press -> BUTTON_REPEAT -> BUTTON_REL,
+ * que es exactamente lo que el driver del 6G produce cuando la
+ * pulsacion pasa el umbral de repeticion: el BUTTON_REL posterior ya NO
+ * casa con el mapeo corto, porque su prebutton exige que el ultimo
+ * boton haya sido el codigo a secas. Herramienta de pruebas, solo
+ * compila en el simulador. */
+#define METRO_INJECT_HOLD_SUFFIX "+HOLD"
+
 static long inject_codes[METRO_MAX_INJECT_BUTTONS];
+static bool inject_hold[METRO_MAX_INJECT_BUTTONS];
 static int inject_count = 0;
 static int inject_pos = 0;
-static bool inject_release_pending = false;
+/* 0 = falta postear la pulsacion, 1 = falta el REPEAT (solo si es
+ * sostenida), 2 = falta el REL. */
+static int inject_phase = 0;
 static long inject_next_tick = 0;
 
 static long aura_button_name_to_code(const char *name)
@@ -129,9 +146,21 @@ static void aura_parse_inject_buttons(const char *spec)
     tok = strtok_r(buf, ",", &saveptr);
     while (tok && inject_count < METRO_MAX_INJECT_BUTTONS)
     {
-        long code = aura_button_name_to_code(tok);
+        /* Metro (M-101): "<BOTON>+HOLD" -> pulsacion sostenida. */
+        size_t tlen = strlen(tok);
+        size_t slen = sizeof(METRO_INJECT_HOLD_SUFFIX) - 1;
+        bool hold = (tlen > slen &&
+                     !strcmp(tok + tlen - slen, METRO_INJECT_HOLD_SUFFIX));
+        long code;
+
+        if (hold)
+            tok[tlen - slen] = '\0';
+        code = aura_button_name_to_code(tok);
         if (code != BUTTON_NONE)
+        {
+            inject_hold[inject_count] = hold && code > 0;
             inject_codes[inject_count++] = code;
+        }
         tok = strtok_r(NULL, ",", &saveptr);
     }
 }
@@ -212,16 +241,26 @@ void sim_thread(void)
                     autodump_tick = current_tick + METRO_INJECT_WAIT_TICKS + autodump_settle_ticks;
                 }
             }
-            else if (!inject_release_pending)
+            else if (inject_phase == 0)
             {
                 button_queue_post(inject_codes[inject_pos], 0);
-                inject_release_pending = true;
+                inject_phase = inject_hold[inject_pos] ? 1 : 2;
+                inject_next_tick = current_tick + METRO_INJECT_RELEASE_GAP;
+            }
+            else if (inject_phase == 1)
+            {
+                /* Metro (M-101): el REPEAT que el driver postearia al
+                 * pasar el umbral de repeticion de una pulsacion
+                 * sostenida -- mismo criterio que el token POWEROFF
+                 * (postear lo que el driver hubiera posteado). */
+                button_queue_post(inject_codes[inject_pos] | BUTTON_REPEAT, 0);
+                inject_phase = 2;
                 inject_next_tick = current_tick + METRO_INJECT_RELEASE_GAP;
             }
             else
             {
                 button_queue_post(inject_codes[inject_pos] | BUTTON_REL, 0);
-                inject_release_pending = false;
+                inject_phase = 0;
                 inject_pos++;
                 inject_next_tick = current_tick + METRO_INJECT_PRESS_GAP;
 

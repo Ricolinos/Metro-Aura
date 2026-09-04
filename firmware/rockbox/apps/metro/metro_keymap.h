@@ -62,6 +62,15 @@ enum metro_action {
      * MACT_HOME/MACT_PLAYPAUSE are reused too (back to the grid, home,
      * play/pause). Only the fit/cover toggle needs a new action. */
     MACT_TOGGLE_VIEW_MODE,                     /* SELECT (short): fit <-> cover */
+
+    /* M-101: LIST context only -- SELECT held. Today its only consumer
+     * is the About pivot, which uses it to reveal the main-stack
+     * watermark row. Same short/held pair the player already proves
+     * with MACT_OPTIONS/MACT_TOGGLE_SHUFFLE: the REL that follows a
+     * REPEAT no longer matches the short mapping, because that
+     * mapping's prebutton demands the last button to have been a plain
+     * BUTTON_SELECT. */
+    MACT_SELECT_HOLD,
 };
 
 #define MACT_NONE ACTION_NONE

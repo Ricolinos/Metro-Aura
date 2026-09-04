@@ -659,6 +659,26 @@ static bool track_path_mtime(int32_t idx_id, char *out, size_t outsz, long *mtim
     return ok;
 }
 
+/* M-102: mtime of the `cover.jpg` sitting next to `track_path`, or 0
+ * if there is none. The contract (library-layout-v1 SS2) puts album art
+ * exactly there, with exactly that name, so this does not need to
+ * repeat find_albumart()'s whole search: any OTHER art source (an
+ * embedded APIC, a differently named file) travels inside the track
+ * itself and therefore already moves the track's own mtime. */
+static long sibling_cover_mtime(const char *track_path)
+{
+    char cover[MAX_PATH];
+    char *slash;
+
+    strlcpy(cover, track_path, sizeof(cover));
+    slash = strrchr(cover, '/');
+    if (!slash)
+        return 0;
+    slash[1] = '\0';
+    strlcat(cover, "cover.jpg", sizeof(cover));
+    return metro_fsutil_file_mtime(cover);
+}
+
 bool metro_music_album_art_key(int32_t album_seek, char *out, size_t outsz)
 {
     metro_music_item_t track;
@@ -684,6 +704,12 @@ bool metro_music_album_art_key(int32_t album_seek, char *out, size_t outsz)
         return false;
     }
     crc = crc_32(path, strlen(path), 0xffffffff);
+    /* M-102 (contract v18): the key's mtime is the LATER of the track
+     * and its sibling cover.jpg. The crc stays the track path's -- what
+     * identifies the album does not change; what changes is when the
+     * derived image stops being valid. See
+     * metro_master_art_album_mtime() for why. */
+    mtime = metro_master_art_album_mtime(mtime, sibling_cover_mtime(path));
 
     i = s_art_key_memo_n < ART_KEY_MEMO_N ? s_art_key_memo_n++ : s_art_key_memo_ring;
     s_art_key_memo_ring = (s_art_key_memo_ring + 1) % ART_KEY_MEMO_N;

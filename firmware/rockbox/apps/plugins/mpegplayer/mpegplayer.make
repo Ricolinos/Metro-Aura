@@ -29,6 +29,16 @@ endif
 # plugin. Zero new RGB literals in this plugin; every color still comes
 # from that single file (CLAUDE.md's palette rule).
 MPEGCFLAGS += -I$(APPSDIR)/metro
+# Metro (M-101): the dependency pass (mkdepfile, tools/functions.make)
+# builds its command line from PPCFLAGS + OTHER_INC, NOT from
+# MPEGCFLAGS -- so without this line `metro_palette.h` is unresolvable
+# there and `-MG` turns it into a phony $(BUILDDIR)/metro_palette.h
+# that no rule can make. It only bites on a build directory whose
+# make.dep is generated AFTER M-059, which is why it stayed hidden:
+# the working tree's build-ipod6g/ still carries a make.dep from
+# before that phase. Every other plugin include path is registered the
+# same way (apps/plugins/plugins.make:79).
+OTHER_INC += -I$(APPSDIR)/metro
 
 $(MPEGBUILDDIR)/mpegplayer.rock: $(MPEG_OBJ) $(CODECDIR)/libmad-mpeg.a
 

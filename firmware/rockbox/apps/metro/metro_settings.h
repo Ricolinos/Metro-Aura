@@ -122,6 +122,21 @@ void metro_ensure_media_dirs(void);
  * family is active and read by all three (metro_master_art_format.h). */
 #define AURA_SHARED_ART_DIR    "/.aura/art"
 
+/* M-102 (contract v18): the FORMAT VERSION of everything derived from
+ * a source image. A cache entry carries no version of its own, so a
+ * tile derived by a version of the firmware with a bug in its cropping
+ * survives the fix forever -- the key only changes when the SOURCE
+ * changes. This file is how a firmware says "what is on this disk was
+ * derived by rules older than mine": on boot each family reads it and,
+ * if it is missing or lower than its own, throws away every derived
+ * cache on the disk and writes its number. Studio never touches it
+ * (same rule as the rest of /.aura/art).
+ *
+ * Version 2 = contract v18 (square fill+center-crop everywhere, album
+ * key with the sibling cover.jpg mtime). "Missing" means version 1,
+ * i.e. anything written before v18. */
+#define AURA_SHARED_ART_FORMAT_VERSION 2
+
 /* M-095: points global_settings.tagcache_db_path at AURA_SHARED_DB_DIR
  * and migrates a per-tree database (ROCKBOX_DIR/database_*.tcd, the
  * pre-v15 location) into it by rename() -- same FAT partition, no
@@ -154,6 +169,21 @@ void metro_settings_metro_cache_dir(const char *subdir, char *out, size_t outsz)
  * shared master cache directory, same rule as above: only this
  * function spells the path, metro_master_art.c asks for it. */
 void metro_settings_master_art_dir(const char *subdir, char *out, size_t outsz);
+
+/* M-102: AURA_SHARED_ART_DIR/format.txt -- same rule, only this module
+ * spells the path. */
+void metro_settings_master_art_format_path(char *out, size_t outsz);
+
+/* M-102: deletes EVERY derived image cache on the disk -- the shared
+ * master cache (everything under /.aura/art, keeping that directory
+ * itself so the version file can be written next to it) and Metro's
+ * own L2 tiles under /.aura/thumbs. Both are derived data: nothing
+ * here is the user's, everything regenerates from the JPEGs Studio
+ * put on the disk.
+ * Returns how many files it removed. Only metro_master_art.c calls it,
+ * and only when the format version on disk is older than this
+ * firmware's. */
+int metro_settings_purge_derived_caches(void);
 
 /* R3-F3/DD-6 (M-064): .../aura/artist_images.cfg (Studio's index) and
  * .../aura/artists/ (Studio's own source photo cache, the directory

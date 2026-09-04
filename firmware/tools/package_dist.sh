@@ -99,6 +99,15 @@ echo "==> Versión: $VERSION"
 echo "==> Compilando firmware + bootloader (build_target.sh)"
 "$ROOT_DIR/firmware/tools/build_target.sh"
 
+# M-101: la pila del hilo principal no da ningún aviso al compilar --
+# se manifiesta como un `Stkov main` en el iPod. stack_report.py
+# recompila en un árbol aparte con -fstack-usage y falla si algún marco
+# de apps/metro/ pasa de 1 KB o si el peor camino estático desde main()
+# no cabe en el 75 % de la pila. Corre ANTES de empaquetar a propósito:
+# un paquete que no pasa este reporte no se publica.
+echo "==> Reporte estático de pila (stack_report.py)"
+"$ROOT_DIR/firmware/tools/stack_report.py"
+
 echo "==> Empaquetando el árbol .rockbox/ real (make zip: códecs, rocks, viewers.config, codepages, langs)"
 (cd "$BUILD_DIR" && PATH="$TC_BIN:$PATH" make zip ${VERSION:+VERSION="$VERSION"})
 

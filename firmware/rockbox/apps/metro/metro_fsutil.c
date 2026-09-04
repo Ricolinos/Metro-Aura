@@ -20,6 +20,7 @@
 #include <string.h>
 
 #include "dir.h"
+#include "file.h"
 #include "string-extra.h"
 #include "strnatcmp.h"
 
@@ -128,4 +129,38 @@ int metro_fsutil_list_by_ext_mtime(const char *dir, const char *const *exts, int
     }
 
     return n;
+}
+
+long metro_fsutil_file_mtime(const char *path)
+{
+    char dir[MAX_PATH];
+    const char *name;
+    char *slash;
+    DIR *d;
+    struct DIRENT *entry;
+    long mtime = 0;
+
+    if (!path || !path[0])
+        return 0;
+    strlcpy(dir, path, sizeof(dir));
+    slash = strrchr(dir, '/');
+    if (!slash)
+        return 0;
+    *slash = '\0';
+    name = path + (slash - dir) + 1;
+    if (!name[0])
+        return 0;
+    /* A file directly at the root: the parent is "/", not "". */
+    d = opendir(dir[0] ? dir : "/");
+    if (!d)
+        return 0;
+    while ((entry = readdir(d)) != NULL)
+    {
+        if (strcasecmp(entry->d_name, name))
+            continue;
+        mtime = (long)dir_get_info(d, entry).mtime;
+        break;
+    }
+    closedir(d);
+    return mtime;
 }

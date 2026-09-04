@@ -85,4 +85,15 @@ int metro_fsutil_list_by_ext_mtime(const char *dir, const char *const *exts, int
                                     char out[][METRO_FSUTIL_NAME_LEN], long out_mtimes[],
                                     int max);
 
+/* M-102 (contract v18): mtime of ONE file, or 0 if it does not exist.
+ *
+ * Rockbox has no stat(): the only way to a file's mtime is
+ * dir_get_info() over its parent directory, which is what the scans
+ * above already do. This is that same read, narrowed to a single name
+ * -- used by the album art key to pick up a cover.jpg that Studio
+ * rewrote without touching any track. 0 (the "absent" answer) is also
+ * what a directory that cannot be opened returns: a key must never
+ * depend on whether a read happened to fail. */
+long metro_fsutil_file_mtime(const char *path);
+
 #endif /* METRO_FSUTIL_H */

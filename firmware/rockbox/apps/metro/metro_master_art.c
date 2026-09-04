@@ -17,6 +17,7 @@
  * KIND, either express or implied.
  *
  ****************************************************************************/
+#include <stdio.h>
 #include <string.h>
 
 #include "config.h"
@@ -191,6 +192,60 @@ void metro_master_art_write_none(const char *subdir, const char *key)
     fd = creat(path, 0666);
     if (fd >= 0)
         close(fd);
+}
+
+/* M-102: the file holds a decimal integer and nothing else. Anything
+ * unreadable -- absent, empty, not a number -- counts as version 1
+ * (pre-v18), which is the safe reading: purging a cache costs one
+ * rebuild, keeping a wrongly-derived one costs forever. */
+static int read_format_version(void)
+{
+    char path[MAX_PATH];
+    char buf[16];
+    int fd, n, v = 0;
+
+    metro_settings_master_art_format_path(path, sizeof(path));
+    fd = open(path, O_RDONLY);
+    if (fd < 0)
+        return 1;
+    n = read(fd, buf, sizeof(buf) - 1);
+    close(fd);
+    if (n <= 0)
+        return 1;
+    buf[n] = '\0';
+    for (const char *p = buf; *p >= '0' && *p <= '9'; p++)
+        v = v * 10 + (*p - '0');
+    return v > 0 ? v : 1;
+}
+
+static void write_format_version(void)
+{
+    char path[MAX_PATH];
+    char buf[16];
+    int fd, n;
+
+    /* The directory has to exist before the file can: on a disk that
+     * never had a master cache, this boot is the one that creates it. */
+    ensure_dir("albums");
+    metro_settings_master_art_format_path(path, sizeof(path));
+    fd = creat(path, 0666);
+    if (fd < 0)
+        return;
+    n = snprintf(buf, sizeof(buf), "%d\n", AURA_SHARED_ART_FORMAT_VERSION);
+    write(fd, buf, n);
+    close(fd);
+}
+
+int metro_master_art_check_format_version(void)
+{
+    int removed;
+
+    if (read_format_version() >= AURA_SHARED_ART_FORMAT_VERSION)
+        return 0;
+
+    removed = metro_settings_purge_derived_caches();
+    write_format_version();
+    return removed;
 }
 
 static bool crc_live(uint32_t h, const uint32_t *keys, int n)

@@ -61,6 +61,11 @@ void metro_master_art_format_key(char prefix, uint32_t crc, long mtime,
     snprintf(out, outsz, "%c-%08lx.%ld", prefix, (unsigned long)crc, mtime);
 }
 
+long metro_master_art_album_mtime(long track_mtime, long cover_mtime)
+{
+    return (cover_mtime > track_mtime) ? cover_mtime : track_mtime;
+}
+
 static void put_le16(uint8_t *p, uint16_t v) { p[0] = v & 0xff; p[1] = v >> 8; }
 static void put_le32(uint8_t *p, uint32_t v)
 {

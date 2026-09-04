@@ -829,3 +829,72 @@ texto de destino y, por lo tanto, cuántos escalones tiene la escalera.
 **Nota de numeración**: el plan llamaba prospectivamente "R3-5" a esta
 entrada; los números se asignan en orden real de ejecución y R3-5/R3-6
 ya los consumieron hallazgos de R3-F5 y R3-F7.
+
+
+## R7-1 — `stack_report.py`: los `.su` de `-fstack-usage` cuentan dos veces la memoria que gcc integra por inlining
+
+**Qué pedía el plan.** `PLAN-ronda-3-firmwares-maestro.md` §E.3: una
+herramienta que compile con `-fstack-usage`, lea los `.su` y liste las
+funciones de mayor marco.
+
+**Qué se implementó, y por qué.** La primera versión de esta sesión hacía
+literalmente eso, en un árbol de build aparte
+(`firmware/build-ipod6g-stack/`). Funcionaba, pero la sesión A
+(Aura-Firmware) ya había encontrado el problema de fondo y lo dejó
+documentado en su D-345: **`-fstack-usage` reporta lo que el compilador
+reserva por función FUENTE, y tras el inlining el binario real no
+coincide**. Su caso medido: gcc integra `style_fonts_exist` dentro de
+`aura_style_scan`, así que sumar los dos `.su` cuenta la misma memoria
+dos veces y el "peor camino" sale inflado.
+
+La herramienta que queda mide el **desensamblado del binario que de
+verdad se publica** (`arm-elf-eabi-objdump -d`, sumando `push`/`stmdb`
++ `sub sp, #imm` de cada prólogo) y saca el grafo de llamadas del mismo
+desensamblado, así que marcos y aristas siempre corresponden al mismo
+binario. De paso no necesita un segundo árbol de compilación:
+`package_dist.sh` la corre en segundos sobre el `.elf` recién enlazado
+en vez de rehacer un build completo con otras banderas. Se conserva
+`--su-dir` como contraste opcional, que es donde el hallazgo se puede
+volver a ver.
+
+Se **portó** de `../Aura-Firmware/firmware/tools/stack_report.py` (solo
+lectura), no se reescribió: cambian las rutas (`apps/metro/`), las
+raíces del hilo de UI (`main`, `metro_main`) y `GUARDED_EDGES`.
+
+**Impacto en el plan**: ninguno en el criterio de "hecho" de la Fase 1 —
+la herramienta hace lo que §E.3 quería (listar marcos, estimar el peor
+camino, fallar con los dos mismos umbrales) y lo hace sobre una base
+mejor. Ver `DECISIONS.md` M-101.
+
+## R7-2 — Metro NO porta el corte de skins de D-345: su camino de skins ya cabe
+
+La supervisora indicó portar el cambio de Aura-Firmware
+(`settings_apply_skins()` deja de cargar skins,
+`apps/gui/skin_engine/skin_engine.c`) **si** el reporte de pila mostraba
+ese camino por encima de 6 KB. Medido con la herramienta ya portada,
+sobre el binario real de Metro: **5 136 B** desde `skin_get_gwps`
+(5 296 B desde `settings_apply_skins`), y **no es el peor camino** — el
+peor nace en `metro_music.c`/tagcache con 7 400 B. Debajo del umbral y
+sin ser el cuello de botella, tocar el motor de skins de Rockbox es
+riesgo sin beneficio. `GUARDED_EDGES` queda **vacía** en Metro, con el
+motivo escrito en el propio archivo para que la diferencia con Aura no
+parezca un olvido. Se reevalúa si el peor camino se acerca al tope.
+
+## R7-3 — Un build limpio del target no compilaba desde M-059 (dependencias de `mpegplayer`)
+
+Encontrado al crear un árbol de build desde cero para la primera versión
+de `stack_report.py`: `make` moría con `No rule to make target
+'<build>/metro_palette.h', needed by mpegplayer.o`. La pasada de
+dependencias (`mkdepfile`, `tools/functions.make:57`) arma su línea de
+comandos con `PPCFLAGS` + `OTHER_INC`, **no** con `MPEGCFLAGS`, y M-059
+había agregado `-I$(APPSDIR)/metro` solo a `MPEGCFLAGS`. El `-MG`
+convierte entonces `metro_palette.h` en un archivo fantasma dentro del
+build que ninguna regla sabe construir.
+
+Llevaba escondido desde el 2026-08-19 porque el `firmware/build-ipod6g/`
+del árbol de trabajo arrastra un `make.dep` **anterior** a esa fase:
+nadie había reconstruido desde cero, y `package_dist.sh` reusa ese mismo
+directorio. Corregido con `OTHER_INC += -I$(APPSDIR)/metro`
+(`mpegplayer.make`, marca `Metro (M-101)`, registro en
+`MODIFICATIONS.md`). Sin efecto sobre el binario: solo sobre la pasada
+de dependencias.
