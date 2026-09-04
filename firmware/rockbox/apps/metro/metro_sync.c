@@ -88,7 +88,16 @@ static int read_marker_text(char *buf, size_t bufsize)
 
 static bool write_marker(const metro_sync_marker_t *m)
 {
-    char buf[MARKER_BUF_SIZE];
+    /* M-101 (addendum): `static`, no en la pila -- esta funcion pasaba
+     * del tope de 1 KB de marco que vigila stack_report.py. Segura
+     * porque corre SOLO en el hilo de UI (metro_sync_tick(), metro_settings.c y la fila de
+     * Ajustes; el hilo `metro_art` solo consulta
+     * metro_sync_job_active()), y no se llama a si misma.
+     * Sin inicializador a proposito: un estatico inicializado deja de
+     * vivir en `.bss` y viaja como `.data` dentro del binario -- KB de
+     * ceros en cada `rockbox.zip` y un archivo mas que cambia en la
+     * actualizacion selectiva del contrato v11. */
+    static char buf[MARKER_BUF_SIZE];
     int fd, n = metro_sync_marker_serialize(m, buf, sizeof(buf));
 
     if (n < 0)
@@ -385,8 +394,16 @@ bool metro_sync_art_progress(metro_master_art_phase_t *phase, int *done, int *to
  * documentada en `docs/COMPAT_STUDIO.md`, no escondida. */
 static void import_ratings(void)
 {
-    char path[MAX_PATH];
-    char line[MAX_PATH + 16];
+    /* M-101 (addendum): `static`, no en la pila -- esta funcion pasaba
+     * del tope de 1 KB de marco que vigila stack_report.py. Segura
+     * porque corre SOLO en el hilo de UI (solo desde finish_ok() de
+     * metro_sync_tick()), y no se llama a si misma.
+     * Sin inicializador a proposito: un estatico inicializado deja de
+     * vivir en `.bss` y viaja como `.data` dentro del binario -- KB de
+     * ceros en cada `rockbox.zip` y un archivo mas que cambia en la
+     * actualizacion selectiva del contrato v11. */
+    static char path[MAX_PATH];
+    static char line[MAX_PATH + 16];
     int fd;
 
     metro_settings_ratings_cfg_path(path, sizeof(path));

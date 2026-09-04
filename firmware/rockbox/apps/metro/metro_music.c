@@ -365,8 +365,18 @@ static void sort_by_tracknum(metro_music_item_t *items, int n)
 static int run_search(int tag, int filter_tag, int32_t filter_seek,
                        metro_music_item_t *out, int max)
 {
-    struct tagcache_search tcs;
-    char buf[TAGCACHE_BUFSZ];
+    /* M-101 (addendum): `static`, no en la pila. `struct
+     * tagcache_search` mide ~800 B por si sola (seeklist[32],
+     * idxfd[TAG_COUNT], clause[32]) y con el buffer al lado esta
+     * funcion pasaba del tope de 1 KB de marco que vigila
+     * stack_report.py. Es seguro porque TODO recorrido de tagcache de
+     * este archivo corre bajo el mutex unico de M-097 (ver LOCK() mas
+     * arriba): el hilo de UI y el hilo `metro_art` nunca estan dentro
+     * a la vez, y esta funcion no se llama a si misma ni de forma
+     * anidada. Mismo trato que ya tenian las tablas grandes de este
+     * archivo (s_uniqbuf, s_tracknum, s_ids/s_nums/s_titles). */
+    static struct tagcache_search tcs;
+    static char buf[TAGCACHE_BUFSZ];
     int n = 0;
     bool album_order = (tag == tag_title && filter_tag == tag_album);
 
@@ -410,16 +420,28 @@ static int run_search(int tag, int filter_tag, int32_t filter_seek,
     }
 
     tagcache_search_finish(&tcs);
-    UNLOCK();
 
     /* Album songs keep disc order (same criterion metro_music_play_songs_of_album()
      * uses to build the playback playlist -- the row picked on screen and the
-     * track that starts playing always match). Everything else is alphabetical. */
+     * track that starts playing always match). Everything else is alphabetical.
+     *
+     * M-101 (addendum): el orden corre DENTRO del lock. Antes el
+     * UNLOCK() estaba una linea mas arriba, y sort_by_tracknum()
+     * permuta `s_tracknum`, que es estatico y compartido: si el hilo
+     * `metro_art` entraba a run_search() en ese hueco, sobrescribia los
+     * numeros de pista que este ordenamiento todavia estaba usando y
+     * las canciones salian con el numero de otra lista. Hoy no puede
+     * pasar -- los hilos de Rockbox son cooperativos y este tramo no
+     * cede el CPU -- pero eso es una propiedad del planificador, no de
+     * este codigo, y Aura-Firmware se comio el bug equivalente con su
+     * propio arreglo de numeros de pista (D-346). Ordenar es CPU pura,
+     * sin disco: al constructor no le cuesta nada esperar. */
     if (album_order)
         sort_by_tracknum(out, n);
     else
         sort_by_label(out, n);
 
+    UNLOCK();
     return n;
 }
 
@@ -505,8 +527,18 @@ struct metro_music_recent_agg {
 
 int metro_music_recent_albums(metro_music_item_t *out, int max)
 {
-    struct tagcache_search tcs;
-    char buf[MAX_PATH];
+    /* M-101 (addendum): `static`, no en la pila. `struct
+     * tagcache_search` mide ~800 B por si sola (seeklist[32],
+     * idxfd[TAG_COUNT], clause[32]) y con el buffer al lado esta
+     * funcion pasaba del tope de 1 KB de marco que vigila
+     * stack_report.py. Es seguro porque TODO recorrido de tagcache de
+     * este archivo corre bajo el mutex unico de M-097 (ver LOCK() mas
+     * arriba): el hilo de UI y el hilo `metro_art` nunca estan dentro
+     * a la vez, y esta funcion no se llama a si misma ni de forma
+     * anidada. Mismo trato que ya tenian las tablas grandes de este
+     * archivo (s_uniqbuf, s_tracknum, s_ids/s_nums/s_titles). */
+    static struct tagcache_search tcs;
+    static char buf[MAX_PATH];
     /* static: 300 * ~72 =~ 21KB, same D-226 stack concern as the other
      * large tables in this file. */
     static struct metro_music_recent_agg agg[METRO_MUSIC_MAX_GROUPS];
@@ -554,7 +586,15 @@ int metro_music_recent_albums(metro_music_item_t *out, int max)
         }
     }
     tagcache_search_finish(&tcs);
-    UNLOCK();
+
+    /* M-101 (addendum): igual que en run_search(), el orden y la
+     * resolucion de seeks quedan DENTRO del lock. `agg` y
+     * `all_albums` son estaticos que este tramo permuta y reescribe, y
+     * metro_music_albums() de mas abajo es otro recorrido de tagcache
+     * (toma el mismo mutex, que es recursivo). Solo la llama el hub
+     * desde el hilo de UI, asi que hoy no hay carrera posible; se
+     * cierra igual para que la seguridad no dependa de quien llama
+     * -- misma leccion que D-346 en Aura-Firmware. */
 
     /* Insertion sort by lastplayed descending -- agg_n capped at 300,
      * same shape as the sort insert_matching_tracks() already does
@@ -585,6 +625,7 @@ int metro_music_recent_albums(metro_music_item_t *out, int max)
                 break;
             }
     }
+    UNLOCK();
     return out_n;
 }
 
@@ -636,7 +677,13 @@ bool metro_music_track_path(int32_t idx_id, char *out, size_t outsz)
 /* M-096: path + tagcache's stored mtime of one track, one search. */
 static bool track_path_mtime(int32_t idx_id, char *out, size_t outsz, long *mtime)
 {
-    struct tagcache_search tcs;
+    /* M-101 (addendum): `static`, mismo motivo e invariante que el
+     * resto de este archivo (mutex unico de M-097). gcc integra esta
+     * funcion dentro de metro_music_album_art_key(), asi que su `tcs`
+     * de ~800 B era lo que empujaba a ESA por encima del tope de 1 KB
+     * -- el marco que mide stack_report.py es el del binario, no el
+     * de la funcion fuente. */
+    static struct tagcache_search tcs;
     bool ok;
 
     if (!tagcache_is_usable())
@@ -667,7 +714,9 @@ static bool track_path_mtime(int32_t idx_id, char *out, size_t outsz, long *mtim
  * itself and therefore already moves the track's own mtime. */
 static long sibling_cover_mtime(const char *track_path)
 {
-    char cover[MAX_PATH];
+    /* M-101 (addendum): `static` -- se integra en el mismo marco que
+     * lo anterior y solo se llama con el lock tomado. */
+    static char cover[MAX_PATH];
     char *slash;
 
     strlcpy(cover, track_path, sizeof(cover));
@@ -681,8 +730,10 @@ static long sibling_cover_mtime(const char *track_path)
 
 bool metro_music_album_art_key(int32_t album_seek, char *out, size_t outsz)
 {
-    metro_music_item_t track;
-    char path[MAX_PATH];
+    /* M-101 (addendum): `static` bajo el mismo invariante -- todo el
+     * cuerpo corre entre LOCK() y UNLOCK(). */
+    static metro_music_item_t track;
+    static char path[MAX_PATH];
     uint32_t crc;
     long mtime;
     int i;
@@ -724,9 +775,19 @@ bool metro_music_album_art_key(int32_t album_seek, char *out, size_t outsz)
 
 bool metro_music_album_key_for_track(const char *track_path, char *out, size_t outsz)
 {
-    struct tagcache_search tcs;
+    /* M-101 (addendum): `static`, no en la pila. `struct
+     * tagcache_search` mide ~800 B por si sola (seeklist[32],
+     * idxfd[TAG_COUNT], clause[32]) y con el buffer al lado esta
+     * funcion pasaba del tope de 1 KB de marco que vigila
+     * stack_report.py. Es seguro porque TODO recorrido de tagcache de
+     * este archivo corre bajo el mutex unico de M-097 (ver LOCK() mas
+     * arriba): el hilo de UI y el hilo `metro_art` nunca estan dentro
+     * a la vez, y esta funcion no se llama a si misma ni de forma
+     * anidada. Mismo trato que ya tenian las tablas grandes de este
+     * archivo (s_uniqbuf, s_tracknum, s_ids/s_nums/s_titles). */
+    static struct tagcache_search tcs;
+    static char buf[TAGCACHE_BUFSZ];
     struct tagcache_search_clause clause;
-    char buf[TAGCACHE_BUFSZ];
     int32_t album_seek = -1;
 
     if (!tagcache_is_usable() || !track_path || !track_path[0])
@@ -757,8 +818,18 @@ bool metro_music_album_key_for_track(const char *track_path, char *out, size_t o
 
 int metro_music_album_seeks(int32_t *out, int max)
 {
-    struct tagcache_search tcs;
-    char buf[TAGCACHE_BUFSZ];
+    /* M-101 (addendum): `static`, no en la pila. `struct
+     * tagcache_search` mide ~800 B por si sola (seeklist[32],
+     * idxfd[TAG_COUNT], clause[32]) y con el buffer al lado esta
+     * funcion pasaba del tope de 1 KB de marco que vigila
+     * stack_report.py. Es seguro porque TODO recorrido de tagcache de
+     * este archivo corre bajo el mutex unico de M-097 (ver LOCK() mas
+     * arriba): el hilo de UI y el hilo `metro_art` nunca estan dentro
+     * a la vez, y esta funcion no se llama a si misma ni de forma
+     * anidada. Mismo trato que ya tenian las tablas grandes de este
+     * archivo (s_uniqbuf, s_tracknum, s_ids/s_nums/s_titles). */
+    static struct tagcache_search tcs;
+    static char buf[TAGCACHE_BUFSZ];
     int n = 0;
 
     if (!tagcache_is_usable())
@@ -791,8 +862,18 @@ int metro_music_songs_of_genre(int32_t genre_seek, metro_music_item_t *out, int 
  * (D-226, same as Aura-Firmware). R5/M-087: song-sized (5,000). */
 static bool insert_matching_tracks(int filter_tag, int32_t filter_seek, bool album_order)
 {
-    struct tagcache_search tcs;
-    char path[MAX_PATH];
+    /* M-101 (addendum): `static`, no en la pila. `struct
+     * tagcache_search` mide ~800 B por si sola (seeklist[32],
+     * idxfd[TAG_COUNT], clause[32]) y con el buffer al lado esta
+     * funcion pasaba del tope de 1 KB de marco que vigila
+     * stack_report.py. Es seguro porque TODO recorrido de tagcache de
+     * este archivo corre bajo el mutex unico de M-097 (ver LOCK() mas
+     * arriba): el hilo de UI y el hilo `metro_art` nunca estan dentro
+     * a la vez, y esta funcion no se llama a si misma ni de forma
+     * anidada. Mismo trato que ya tenian las tablas grandes de este
+     * archivo (s_uniqbuf, s_tracknum, s_ids/s_nums/s_titles). */
+    static struct tagcache_search tcs;
+    static char path[MAX_PATH];
     static int32_t s_ids[METRO_MUSIC_MAX_SONGS];
     static long s_nums[METRO_MUSIC_MAX_SONGS];
     static char s_titles[METRO_MUSIC_MAX_SONGS][METRO_MUSIC_ITEM_LEN];

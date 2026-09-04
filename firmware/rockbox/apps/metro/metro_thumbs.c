@@ -328,9 +328,19 @@ static void mark_none(struct thumb_slot *s, const char *key)
 
 bool metro_thumbs_tick(void)
 {
-    struct pending_entry entry;
-    char path[MAX_PATH];
-    char mkey[METRO_MASTER_ART_KEY_LEN];
+    /* M-101 (addendum): `static`, no en la pila -- esta funcion pasaba
+     * del tope de 1 KB de marco que vigila stack_report.py. Segura
+     * porque corre SOLO en el hilo de UI (metro_main.c:504, el bucle
+     * ocioso; el hilo `metro_art` entra a este modulo solo por
+     * metro_thumbs_decode_jpeg_cover(), que no comparte nada con
+     * esto), y no se llama a si misma.
+     * Sin inicializador a proposito: un estatico inicializado deja de
+     * vivir en `.bss` y viaja como `.data` dentro del binario -- KB de
+     * ceros en cada `rockbox.zip` y un archivo mas que cambia en la
+     * actualizacion selectiva del contrato v11. */
+    static struct pending_entry entry;
+    static char path[MAX_PATH];
+    static char mkey[METRO_MASTER_ART_KEY_LEN];
     struct thumb_slot *s;
     const char *subdir;
     int px;
