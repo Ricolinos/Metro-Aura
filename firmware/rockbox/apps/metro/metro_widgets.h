@@ -32,6 +32,11 @@
  * redraw whatever was behind it afterwards. */
 bool metro_widgets_confirm(const char *title, const char *question);
 
+/* M-100: igual, con una linea de detalle en caption bajo la pregunta,
+ * para una advertencia que no cabe en las dos lineas de la pregunta. */
+bool metro_widgets_confirm_detail(const char *title, const char *question,
+                                   const char *detail);
+
 /* R5-F3 (M-083): the F5 volume bar ("320x6 at y=232 + 'volume NN%'")
  * is gone -- Now Playing now shows the volume as a two-digit level
  * ("00".."15") drawn by metro_screen_nowplaying.c itself; see

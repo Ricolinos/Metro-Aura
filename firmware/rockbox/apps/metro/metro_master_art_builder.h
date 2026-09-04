@@ -36,6 +36,15 @@
 
 #include <stdbool.h>
 
+/* M-100: phase of the pass, for the "updating library" screen. Same
+ * order as the walk (albums -> artists -> photos). */
+typedef enum {
+    METRO_MASTER_ART_PHASE_IDLE = 0,
+    METRO_MASTER_ART_PHASE_ALBUMS,
+    METRO_MASTER_ART_PHASE_ARTISTS,
+    METRO_MASTER_ART_PHASE_PHOTOS,
+} metro_master_art_phase_t;
+
 /* Creates the thread (once, from metro_main() after the disk handoff)
  * and requests the first pass. */
 void metro_master_art_builder_init(void);
@@ -50,5 +59,38 @@ void metro_master_art_builder_note_input(void);
 /* Asks for another full pass (a sync finished, the database was
  * rebuilt -- metro_thumbs_mark_dirty() calls this). Cheap: a flag. */
 void metro_master_art_builder_request_pass(void);
+
+/* M-100 (owner's request: "actualizar biblioteca"). An EXPLICIT
+ * preparation -- the manual one from Settings, the marker from a Studio
+ * sync, the first boot after a firmware update -- finishes the image
+ * pass BEFORE handing control back, with its progress on the same
+ * "updating library" screen. Only metro_sync.c calls these four.
+ *
+ * Foreground differs from the normal background pass in the gates it
+ * skips, which matters here: may_run() normally refuses while a sync
+ * job is active, while a transition is paused, and until 2s of user
+ * idle -- during an explicit preparation ALL THREE would be true at
+ * once (the user just pressed a button and the sync state machine is
+ * what asked for the pass), so the builder would never move and the
+ * screen would wait forever. The audio gate is NOT skipped: if music
+ * is playing, the disk is its. */
+void metro_master_art_builder_set_foreground(bool foreground);
+
+/* Progress of the current pass. `total` 0 = not known yet (photos walk
+ * the directory in streaming). false if no pass is running. */
+bool metro_master_art_builder_progress(metro_master_art_phase_t *phase,
+                                        int *done, int *total);
+
+/* true once a COMPLETE pass (all three phases, uninterrupted) finished
+ * since the last begin_full_pass(). */
+bool metro_master_art_builder_pass_done(void);
+
+/* true if the thread exists right now -- so the preparation screen
+ * never waits for a pass that can never arrive. */
+bool metro_master_art_builder_is_running(void);
+
+/* Restarts the pass from the beginning of albums (a preparation must
+ * walk EVERYTHING, not continue a half-done pass). */
+void metro_master_art_builder_begin_full_pass(void);
 
 #endif /* METRO_MASTER_ART_BUILDER_H */

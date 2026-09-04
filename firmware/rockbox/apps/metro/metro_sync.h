@@ -32,6 +32,8 @@
 #ifndef METRO_SYNC_H
 #define METRO_SYNC_H
 
+#include "metro_master_art_builder.h" /* M-100: metro_master_art_phase_t */
+
 #include <stdbool.h>
 
 typedef enum {
@@ -41,6 +43,10 @@ typedef enum {
     METRO_SYNC_POSTPONED,     /* user pressed MENU on the screen; job still finishing in the background */
     METRO_SYNC_ERROR_VERSION, /* marker's "version" is newer than METRO_SYNC_MARKER_VERSION_SUPPORTED */
     METRO_SYNC_ERROR_ATTEMPTS,/* marker's "attempts" hit METRO_SYNC_MARKER_MAX_ATTEMPTS */
+    METRO_SYNC_BUILDING_ART,  /* M-100: database done; finishing the shared
+                                 master image cache (/.aura/art) before
+                                 handing control back. MENU postpones it:
+                                 the builder keeps going in the background. */
 } metro_sync_state_t;
 
 /* Reads /.aura/sync-pending.json if present and decides what to do --
@@ -118,5 +124,9 @@ void metro_sync_record_db_stamp(void);
 bool metro_sync_db_stamp_present(void);
 void metro_sync_migrate_db_stamp(bool db_was_migrated);
 bool metro_sync_switch_needs_rebuild(void);
+
+/* M-100: progress of the image phase, for the screen. false if we are
+ * not in that phase. `total` 0 = unknown. */
+bool metro_sync_art_progress(metro_master_art_phase_t *phase, int *done, int *total);
 
 #endif /* METRO_SYNC_H */

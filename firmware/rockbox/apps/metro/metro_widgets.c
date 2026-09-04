@@ -88,7 +88,97 @@ static void draw_question(const char *question)
                      question + cut + 1, metro_color_fg());
 }
 
+/* M-100: linea de detalle bajo la pregunta, en caption. draw_question()
+ * esta topada en DOS lineas a proposito (una tercera choca con "sí"/
+ * "no"), asi que una advertencia larga -- "puede tardar varios minutos,
+ * segun cuantos archivos tengas y como este el disco" -- no cabe ahi sin
+ * mutilarla. Va debajo, en tipografia menor: la jerarquia habitual de
+ * Metro (titulo grande + caption), no una pregunta gigante. Se envuelve
+ * a lo ancho por palabras y se topa en dos lineas propias, que es lo
+ * que entra entre la pregunta y las respuestas. */
+#define CONFIRM_DETAIL_Y      124
+#define CONFIRM_DETAIL_LINES  2
+
+static void draw_detail(const char *detail)
+{
+    static char line[128];
+    int max_w = LCD_WIDTH - 2 * CONFIRM_QUESTION_X;
+    const char *p = detail;
+    int drawn = 0;
+    int y = CONFIRM_DETAIL_Y;
+    int lh;
+
+    lcd_setfont(metro_font_id(MFONT_CAPTION));
+    lcd_getstringsize((const unsigned char *)"Ag", NULL, &lh);
+
+    while (*p && drawn < CONFIRM_DETAIL_LINES)
+    {
+        const char *tail;
+        size_t cut = 0, len;
+        int w;
+
+        /* Si lo que queda entra entero, va entero. Sin esto, la ULTIMA
+         * linea se cortaba igual en su ultimo espacio y la palabra final
+         * se perdia ("...y como este el" en vez de "...el disco."). */
+        len = strlen(p);
+        if (len < sizeof(line))
+        {
+            memcpy(line, p, len);
+            line[len] = '\0';
+            lcd_getstringsize((const unsigned char *)line, &w, NULL);
+            if (w <= max_w)
+            {
+                metro_draw_text(MFONT_CAPTION, CONFIRM_QUESTION_X, y, line,
+                                 metro_color_secondary());
+                return;
+            }
+        }
+
+        /* La palabra mas larga que entra, cortando en espacios. */
+        for (tail = p; (tail = strchr(tail, ' ')) != NULL; tail++)
+        {
+            size_t n = (size_t)(tail - p);
+
+            if (n >= sizeof(line))
+                break;
+            memcpy(line, p, n);
+            line[n] = '\0';
+            lcd_getstringsize((const unsigned char *)line, &w, NULL);
+            if (w > max_w)
+                break;
+            cut = n;
+        }
+        if (cut == 0)
+        {
+            /* Ni una palabra entera entra, o es la ultima linea: se
+             * dibuja lo que queda y el LCD recorta, como hacia
+             * draw_question() en su mismo caso. */
+            len = strlen(p);
+            if (len >= sizeof(line))
+                len = sizeof(line) - 1;
+            memcpy(line, p, len);
+            line[len] = '\0';
+            metro_draw_text(MFONT_CAPTION, CONFIRM_QUESTION_X, y, line,
+                             metro_color_secondary());
+            return;
+        }
+        memcpy(line, p, cut);
+        line[cut] = '\0';
+        metro_draw_text(MFONT_CAPTION, CONFIRM_QUESTION_X, y, line,
+                         metro_color_secondary());
+        p += cut + 1;
+        y += lh;
+        drawn++;
+    }
+}
+
 bool metro_widgets_confirm(const char *title, const char *question)
+{
+    return metro_widgets_confirm_detail(title, question, NULL);
+}
+
+bool metro_widgets_confirm_detail(const char *title, const char *question,
+                                   const char *detail)
 {
     bool sel_yes = false; /* default to "no" -- the safe answer */
 
@@ -99,6 +189,8 @@ bool metro_widgets_confirm(const char *title, const char *question)
         metro_draw_clear();
         metro_draw_header(title);
         draw_question(question);
+        if (detail)
+            draw_detail(detail);
         metro_draw_text(sel_yes ? MFONT_LIST_SEL : MFONT_LIST, 12, CONFIRM_YES_Y,
                          metro_lang_str(LANG_DIALOG_YES),
                          sel_yes ? metro_color_fg() : metro_color_secondary());

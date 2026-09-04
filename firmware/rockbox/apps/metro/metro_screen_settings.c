@@ -359,8 +359,12 @@ static void general_on_select(void *ctx, int index)
             break;
 
         case 7:
-            if (metro_widgets_confirm(metro_lang_str(LANG_HUB_SETTINGS),
-                                       metro_lang_str(LANG_DIALOG_LIBRARY_TITLE)))
+            /* M-100: la advertencia de duración va como detalle, no
+             * dentro de la pregunta -- draw_question() está topada en
+             * dos líneas y la cortaba a la mitad. */
+            if (metro_widgets_confirm_detail(metro_lang_str(LANG_HUB_SETTINGS),
+                                              metro_lang_str(LANG_DIALOG_LIBRARY_TITLE),
+                                              metro_lang_str(LANG_DIALOG_LIBRARY_DETAIL)))
             {
                 metro_sync_request_manual();
                 metro_run_sync_screen_if_needed();

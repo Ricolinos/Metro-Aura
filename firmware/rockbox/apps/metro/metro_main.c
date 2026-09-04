@@ -44,6 +44,7 @@
 #include "metro_input.h"
 #include "metro_keymap.h"
 #include "metro_settings.h"
+#include <stdio.h> /* M-100: snprintf */
 #include "metro_sync.h"
 #include "metro_device.h"
 #include "metro_manifest.h"
@@ -143,6 +144,33 @@ static void draw_sync_screen(void)
     if (is_error)
         metro_draw_text(MFONT_CAPTION, 12, 140, metro_lang_str(LANG_SYNC_DISMISS_HINT),
                          metro_color_secondary());
+    else
+    {
+        /* M-100: the image phase shares this screen -- it is part of
+         * "preparing the library", not a second wait state (S4.3 says
+         * there is exactly one). */
+        metro_master_art_phase_t phase = METRO_MASTER_ART_PHASE_IDLE;
+        int done = 0, total = 0;
+
+        if (metro_sync_art_progress(&phase, &done, &total))
+        {
+            char line[48];
+            enum metro_lang_id fmt;
+
+            if (phase == METRO_MASTER_ART_PHASE_PHOTOS)
+                fmt = LANG_SYNC_ART_PHOTOS;
+            else if (phase == METRO_MASTER_ART_PHASE_ARTISTS)
+                fmt = LANG_SYNC_ART_ARTISTS;
+            else
+                fmt = LANG_SYNC_ART_ALBUMS;
+
+            if (phase == METRO_MASTER_ART_PHASE_PHOTOS)
+                snprintf(line, sizeof(line), metro_lang_str(fmt), done);
+            else
+                snprintf(line, sizeof(line), metro_lang_str(fmt), done, total);
+            metro_draw_text(MFONT_CAPTION, 12, 140, line, metro_color_secondary());
+        }
+    }
     lcd_update();
 }
 

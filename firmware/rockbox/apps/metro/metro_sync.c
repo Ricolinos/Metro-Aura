@@ -29,6 +29,7 @@
 #include "misc.h" /* read_line()/settings_parseline() -- R3-F5/DD-7 */
 
 #include "metro_sync.h"
+#include "metro_master_art_builder.h" /* M-100 */
 #include "metro_sync_marker.h"
 #include "metro_settings.h"
 #include "metro_thumbs.h" /* metro_thumbs_mark_dirty() -- M-096 */
@@ -52,6 +53,16 @@
 typedef enum { JOB_NONE = 0, JOB_UPDATE, JOB_REBUILD } job_kind_t;
 
 static metro_sync_state_t s_state = METRO_SYNC_IDLE;
+/* M-100: the image pass does NOT start the moment tagcache finishes.
+ * Measured in Aura-Firmware (D-344) with traces: at that instant the
+ * album walk still sees 0 albums -- the database was just committed and
+ * is not queryable yet -- so the albums phase did nothing and the pass
+ * reported itself complete without preparing a single cover. Metro's
+ * builder already retries albums on its own (`albums_pending`), but the
+ * screen must not hand control back until the real pass ran. */
+static bool s_art_started = false;
+static int  s_art_wait_ticks = 0;
+#define METRO_ART_DB_WAIT_MAX_TICKS (HZ * 10)
 static metro_sync_marker_t s_marker;
 static job_kind_t s_job = JOB_NONE;
 static unsigned s_jobs_before = 0;
@@ -292,6 +303,7 @@ bool metro_sync_needs_screen(void)
 {
     return s_state == METRO_SYNC_WAIT_TAGCACHE
         || s_state == METRO_SYNC_RUNNING
+        || s_state == METRO_SYNC_BUILDING_ART
         || s_state == METRO_SYNC_ERROR_VERSION
         || s_state == METRO_SYNC_ERROR_ATTEMPTS;
 }
@@ -300,7 +312,12 @@ bool metro_sync_job_active(void)
 {
     return s_state == METRO_SYNC_WAIT_TAGCACHE
         || s_state == METRO_SYNC_RUNNING
-        || s_state == METRO_SYNC_POSTPONED;
+        || s_state == METRO_SYNC_POSTPONED
+        /* M-100: the image phase is work in progress too -- metro_main.c
+         * only ticks the state machine while this holds. The builder's
+         * own may_run() would refuse to work while this is true, which
+         * is why foreground mode skips that gate. */
+        || s_state == METRO_SYNC_BUILDING_ART;
 }
 
 metro_sync_state_t metro_sync_state(void)
@@ -319,7 +336,37 @@ static void finish_ok(void)
     if (s_marker.music)
         metro_thumbs_mark_dirty();
     remove_marker();
+
+    /* M-100 (owner's request, 2026-08-27): "library prepared" includes
+     * the images. Handing control back here means Music/Artists/Albums
+     * show placeholders again while the builder walks in the background
+     * -- exactly the wait that was reported. Only when music was in
+     * scope: a videos/photos-only marker touches neither albums nor
+     * artist photos. */
+    if (s_marker.music)
+    {
+        metro_master_art_builder_set_foreground(true);
+        s_art_started = false;
+        s_art_wait_ticks = 0;
+        s_state = METRO_SYNC_BUILDING_ART;
+        return;
+    }
     go_idle();
+}
+
+/* M-100: leave the image phase -- the builder goes back to its
+ * background cadence no matter how we got out (finished, postponed,
+ * interrupted). */
+static void leave_art_phase(void)
+{
+    metro_master_art_builder_set_foreground(false);
+}
+
+bool metro_sync_art_progress(metro_master_art_phase_t *phase, int *done, int *total)
+{
+    if (s_state != METRO_SYNC_BUILDING_ART)
+        return false;
+    return metro_master_art_builder_progress(phase, done, total);
 }
 
 /* R3-F5/DD-7 (M-066): one-way import of Studio's ratings.cfg --
@@ -524,6 +571,29 @@ bool metro_sync_tick(void)
             job_ended();
             return true;
 
+        case METRO_SYNC_BUILDING_ART:
+            if (!s_art_started)
+            {
+                /* The database has to be queryable BEFORE walking it, or
+                 * the albums phase is skipped in silence. */
+                if (!tagcache_is_usable() && s_art_wait_ticks < METRO_ART_DB_WAIT_MAX_TICKS)
+                {
+                    s_art_wait_ticks++;
+                    return true;
+                }
+                s_art_started = true;
+                metro_master_art_builder_begin_full_pass();
+                return true;
+            }
+            if (metro_master_art_builder_pass_done()
+                || !metro_master_art_builder_is_running())
+            {
+                leave_art_phase();
+                go_idle();
+                return true;
+            }
+            return true; /* progress: redraw */
+
         default:
             return false;
     }
@@ -540,6 +610,13 @@ void metro_sync_postpone(void)
         case METRO_SYNC_RUNNING:
             tagcache_stop_scan();
             s_state = METRO_SYNC_POSTPONED;
+            break;
+        case METRO_SYNC_BUILDING_ART:
+            /* M-100: MENU closes the screen; the builder is NOT
+             * cancelled -- it goes back to its background cadence and
+             * finishes on its own. */
+            leave_art_phase();
+            go_idle();
             break;
         default:
             break;

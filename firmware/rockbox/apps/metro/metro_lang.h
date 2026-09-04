@@ -101,12 +101,18 @@ enum metro_lang_id {
     LANG_SYNC_ERROR_VERSION,
     LANG_SYNC_ERROR_ATTEMPTS,
     LANG_SYNC_DISMISS_HINT,
+    /* M-100: image phase of the preparation (shared master cache
+     * /.aura/art). Photos carries no total: its walk is streaming. */
+    LANG_SYNC_ART_ALBUMS,       /* "preparando carátulas %d/%d" */
+    LANG_SYNC_ART_ARTISTS,      /* "preparando fotos de artistas %d/%d" */
+    LANG_SYNC_ART_PHOTOS,       /* "preparando imágenes %d" */
 
     LANG_SETTING_LIBRARY,
     LANG_SETTING_BRIGHTNESS,
     LANG_SETTING_BACKLIGHT,
     LANG_VALUE_NEVER,
     LANG_DIALOG_LIBRARY_TITLE,
+    LANG_DIALOG_LIBRARY_DETAIL, /* M-100: advertencia de duración */
     LANG_LIBRARY_UPDATING,
 
     LANG_ABOUT_DEVICE_DEFAULT,

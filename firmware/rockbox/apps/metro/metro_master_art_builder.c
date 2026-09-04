@@ -65,6 +65,15 @@ static int      s_live_n;
 
 static volatile bool s_paused = false;
 static volatile bool s_pass_requested = false;
+/* M-100: progress of the pass, written only by this thread and read
+ * only by the UI thread. Word-sized, and Rockbox schedules
+ * cooperatively (a switch only happens at yield/sleep/blocking), so no
+ * lock -- same discipline as s_paused. */
+static volatile metro_master_art_phase_t s_phase = METRO_MASTER_ART_PHASE_IDLE;
+static volatile int  s_phase_done = 0;
+static volatile int  s_phase_total = 0;   /* 0 = unknown (photos) */
+static volatile bool s_pass_done = false;
+static volatile bool s_foreground = false;
 static volatile long s_last_input_tick = 0;
 static bool s_started = false;
 
@@ -103,12 +112,20 @@ static bool audio_wants_the_disk(void)
 
 static bool may_run(void)
 {
-    if (s_paused)
-        return false;
-    if (TIME_BEFORE(current_tick, s_last_input_tick + IDLE_BEFORE_START))
-        return false;
-    if (metro_sync_job_active())
-        return false;
+    /* M-100: en primer plano el usuario esta MIRANDO esta pasada -- las
+     * tres puertas de "cede al usuario" (pausa de transicion, ventana de
+     * inactividad, job de sync en curso) estarian las tres activas a la
+     * vez justo cuando hay que trabajar, y el hilo no avanzaria nunca.
+     * La del audio se conserva: si suena musica, el disco es suyo. */
+    if (!s_foreground)
+    {
+        if (s_paused)
+            return false;
+        if (TIME_BEFORE(current_tick, s_last_input_tick + IDLE_BEFORE_START))
+            return false;
+        if (metro_sync_job_active())
+            return false;
+    }
     if (audio_wants_the_disk())
         return false;
     return true;
@@ -117,7 +134,13 @@ static bool may_run(void)
 /* Sleeps until may_run() -- the wait between elements. */
 static void wait_turn(void)
 {
-    sleep((audio_status() & AUDIO_STATUS_PLAY) ? GAP_WHEN_PLAYING : GAP_BETWEEN_ITEMS);
+    /* M-100: en primer plano solo se cede el turno (la pantalla tiene que
+     * poder redibujarse), sin la pausa que existe para no competir con
+     * el usuario. */
+    if (s_foreground)
+        yield();
+    else
+        sleep((audio_status() & AUDIO_STATUS_PLAY) ? GAP_WHEN_PLAYING : GAP_BETWEEN_ITEMS);
     while (!may_run())
         sleep(HZ / 4);
 }
@@ -164,9 +187,11 @@ static bool build_albums(void)
     if (!tagcache_is_usable() || !tagcache_is_fully_initialized())
         return false;
     n = metro_music_album_seeks(s_seeks, MAX_ALBUMS);
+    s_phase_total = n > 0 ? n : 0;
     live_reset();
     for (i = 0; i < n; i++)
     {
+        s_phase_done = i;
         if (s_pass_requested)
             return true; /* a newer request supersedes this pass */
         if (build_album(s_seeks[i]))
@@ -174,6 +199,7 @@ static bool build_albums(void)
         else
             yield();
     }
+    s_phase_done = n;
     live_sweep("albums", n);
     return true;
 }
@@ -190,12 +216,14 @@ static void build_artists(void)
 
     metro_music_reload_artist_images();
     n = metro_music_artist_image_count();
+    s_phase_total = n > 0 ? n : 0;
     live_reset();
     metro_settings_artists_dir(dir, sizeof(dir));
     for (i = 0; i < n; i++)
     {
         bool worked = false;
 
+        s_phase_done = i;
         if (s_pass_requested)
             return;
         if (!metro_music_artist_image_at(i, filename, sizeof(filename), &mtime))
@@ -256,6 +284,7 @@ static void build_photos(void)
             continue;
         mtime = dir_get_info(d, e).mtime;
         total++;
+        s_phase_done = total;
         metro_photos_master_key(e->d_name, mtime, key, sizeof(key));
         live_add(key);
 
@@ -303,11 +332,28 @@ static void builder_thread(void)
         {
             s_pass_requested = false;
             DEBUGF("metro_art: pass start\n");
+            s_phase = METRO_MASTER_ART_PHASE_ALBUMS;
+            s_phase_done = 0; s_phase_total = 0;
             albums_pending = !build_albums();
             if (!s_pass_requested)
+            {
+                s_phase = METRO_MASTER_ART_PHASE_ARTISTS;
+                s_phase_done = 0; s_phase_total = 0;
                 build_artists();
+            }
             if (!s_pass_requested)
+            {
+                s_phase = METRO_MASTER_ART_PHASE_PHOTOS;
+                s_phase_done = 0; s_phase_total = 0;
                 build_photos();
+            }
+            s_phase = METRO_MASTER_ART_PHASE_IDLE;
+            /* M-100: only a pass that walked EVERYTHING counts. A newer
+             * request superseded this one, or the database was not
+             * usable and albums have to be retried -- neither is a
+             * finished preparation, and the screen must keep waiting. */
+            if (!s_pass_requested && !albums_pending)
+                s_pass_done = true;
             DEBUGF("metro_art: pass end (albums %s)\n",
                    albums_pending ? "pending: database not usable yet" : "done");
         }
@@ -315,10 +361,23 @@ static void builder_thread(void)
         {
             /* The database came up after the pass (bootstrap rebuild,
              * first boot): albums only. */
+            s_phase = METRO_MASTER_ART_PHASE_ALBUMS;
             if (build_albums())
+            {
                 albums_pending = false;
+                /* M-100: la base llego tarde (rebuild de primer arranque):
+                 * las otras dos fases ya corrieron en la pasada anterior,
+                 * asi que con los albumes hechos la preparacion esta
+                 * completa. */
+                s_phase = METRO_MASTER_ART_PHASE_IDLE;
+                if (!s_pass_requested)
+                    s_pass_done = true;
+            }
             else
+            {
+                s_phase = METRO_MASTER_ART_PHASE_IDLE;
                 sleep(HZ);
+            }
         }
     }
 }
@@ -353,5 +412,41 @@ void metro_master_art_builder_note_input(void)
 
 void metro_master_art_builder_request_pass(void)
 {
+    s_pass_requested = true;
+}
+
+/* -- M-100: explicit preparation ---------------------------------------- */
+
+void metro_master_art_builder_set_foreground(bool foreground)
+{
+    s_foreground = foreground;
+}
+
+bool metro_master_art_builder_progress(metro_master_art_phase_t *phase,
+                                        int *done, int *total)
+{
+    if (phase)
+        *phase = s_phase;
+    if (done)
+        *done = s_phase_done;
+    if (total)
+        *total = s_phase_total;
+    return s_started && s_phase != METRO_MASTER_ART_PHASE_IDLE;
+}
+
+bool metro_master_art_builder_pass_done(void)
+{
+    return s_pass_done;
+}
+
+bool metro_master_art_builder_is_running(void)
+{
+    return s_started;
+}
+
+void metro_master_art_builder_begin_full_pass(void)
+{
+    s_pass_done = false;
+    metro_master_art_builder_init(); /* no-op if the thread already exists */
     s_pass_requested = true;
 }
