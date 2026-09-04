@@ -36,17 +36,30 @@ ROLES=(
 )
 
 # Rango de caracteres: latin basico + Latin-1 Supplement + Latin
-# Extended-A (0x20-0x17F) -- suficiente para espanol con acentos/enie,
-# sin cargar el conjunto completo de simbolos de Selawik.
+# Extended-A (0x20-0x17F, es/en/fr/de/it -- acentos, eñe, la Eszett
+# alemana ß y la ligadura œ francesa ya caen dentro de ese rango) +
+# Cyrillic (0x400-0x4FF, ruso) -- M-111 (ronda "ajustes 2", Fase 3,
+# plan maestro SS D.3), sin cargar el conjunto completo de simbolos de
+# Selawik.
 #
 # Sin "-x" (trim horizontal): convttf recorta hasta 2px por lado de
 # TODO glifo "casi vacio", incluido el espacio (0x20), que a 20px pasa
 # de ~5px a ~1px de ancho -- el texto se ve sin espacios. Aura-Firmware
 # tampoco lo usa (design-system/generate.py: solo "-p <size>"). Ver
 # DECISIONS.md M-028.
-START=0x20
-LIMIT=0x17F
-DEFAULT=0x3F # '?'
+# M-111: DECIMAL, no hex -- tools/convttf.c parsea -s/-l/-D con
+# atoi()/atol(), que no entienden el prefijo "0x" (se detienen en la
+# 'x' y devuelven 0). Con `-l 0` convttf cae en su propio default
+# ("ultimo glifo del font", codigo `if (limit_char == 0) limit_char =
+# max_char`) y con `-s 0` arranca en el primer glifo que Selawik
+# define (U+000D, no el espacio) -- asi que este script SIEMPRE genero
+# fuentes con el rango COMPLETO nativo de Selawik (hasta U+2122, ~8500
+# entradas de tabla) sin que "0x20"/"0x17F" tuvieran ningun efecto,
+# desde M-010. Se encontro al verificar por que el vector Cyrillic no
+# cambiaba el tamano del .fnt un byte -- ver DECISIONS.md M-111.
+START=32   # 0x20, espacio
+LIMIT=1279 # 0x4FF, cierra el bloque Cyrillic (ruso)
+DEFAULT=63 # 0x3F, '?'
 
 # Cuarto campo = "-c N", separación extra entre glifos (R5-F2, M-082).
 # Rockbox no tiene kerning por pares, así que es lo único ajustable: a

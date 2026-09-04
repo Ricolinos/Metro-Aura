@@ -3842,3 +3842,70 @@ En el simulador, de punta a punta y con un disco limpio (sin `config.cfg`/`.new`
 **Archivos**: nuevos `metro_shared_settings.c/.h`, `test/test_shared_settings.c`; modificados `metro_settings.c/.h` (I/O + aplicación + `shared_rev_applied`), `metro_screen_settings.c` (los nueve sitios de escritura + la corrección de `replaygain_steps[]`), `metro_screen_lock.c` (dos sitios), `metro_main.c` (un llamado en `metro_disk_handoff()`), `metro_lang.c/.h` (código de dos letras), `apps/SOURCES` (nueva unidad de compilación), `test/Makefile`. `docs/COMPAT_STUDIO.md` gana la fila C35.
 
 **Pendiente para la lista de verificación en hardware**: nada específico de esta fase — el mecanismo de aplicación/escritura ya se verificó de punta a punta en el simulador, y el candado/reloj comparten el mismo retraso de un arranque que M-068/M-095 ya llevaban a hardware sin sorpresas.
+
+## M-111 — Idiomas: francés, alemán, ruso, italiano — y un hueco real de cobertura de glifos en ruso
+
+**Ronda "ajustes 2", Fase 3.** Plan maestro §D, plan hijo Fase 3. `metro_lang.c/.h` pasa de dos a seis idiomas (es/en/fr/de/ru/it), con selector de nombres nativos y código de dos letras en `settings.cfg` (contrato v19, ya cableado desde M-110). El hallazgo más importante de esta fase no es una traducción: es que **el ruso, tal como está hoy, no se puede leer en pantalla** — documentado abajo con evidencia, no oculto.
+
+### Seis idiomas: las 137 cadenas × 6
+
+`strings_fr[]`, `strings_de[]`, `strings_ru[]`, `strings_it[]` se suman a `strings_es[]`/`strings_en[]`, mismo patrón de tabla indexada por `enum metro_lang_id`. Reglas del maestro (§D.1) aplicadas:
+- **Alemán**: sustantivos en mayúscula (`Musik`, `Einstellungen`, `Lautstärkegrenze`).
+- **Francés**: espacio normal antes de `?`/`:` (no el espacio fino insecable de la tipografía francesa correcta) — pedido explícito del maestro, sin anglicismos (`réglages`, no *"settings"*).
+- **Ruso**: cirílico real, tono natural, sin transliterar.
+- **Longitud vigilada** (ruso/alemán ~30% más largos): verificado en vivo, ver capturas abajo — ninguna fila de las revisadas se corta.
+
+`metro_splash_lang.c` (las ocho cadenas de arranque que Rockbox mismo escribe antes de que exista ninguna pantalla propia de Metro) gana las mismas cuatro columnas — un hueco que se habría notado igual, "Loading..." nunca traducido en ruso mientras el resto de la UI sí.
+
+**Selector con nombres nativos** (plan maestro §D.2: "Español · English · Français · Deutsch · Русский · Italiano"): nueva `metro_lang_native_name()`, una tabla FIJA que NO pasa por `current_lang` — un hablante de ruso necesita ver "Русский" en la fila aunque la UI esté en español. La fila de idioma en Ajustes cicla los seis en orden fijo (antes alternaba binario es↔en); `LANG_VALUE_SPANISH`/`LANG_VALUE_ENGLISH` (el viejo mecanismo, dos entradas por idioma en la tabla traducida) se retiraron por innecesarios.
+
+### Cirílico en `metro_lang_initial()`/`metro_lang_upper()`/`metro_lang_collate()`
+
+El plan pide "álbum cirílico... en `gen_test_media.sh`" — para que ese álbum se ordene y muestre bien en las listas (no solo que la palabra "ruso" exista en `metro_lang.c`), hacía falta enseñarle a estas tres funciones el bloque cirílico (U+0400-04FF, guías UTF-8 `0xD0`/`0xD1`), igual que ya sabían Latin-1 desde R4:
+- Mayúsculas а..п (`0xD0 0xB0..0xBF`) con el mismo desplazamiento -0x20 que Latin-1; р..я (`0xD1 0x80..0x8F`) cruzan el corte de guía UTF-8 hacia `0xD0 0xA0..0xAF`; ё→Ё (`0xD1 0x91`→`0xD0 0x81`) es la única excepción real, sin desplazamiento limpio.
+- `metro_lang_collate()`: cirílico pliega a MAYÚSCULA (no minúscula, al revés que Latin-1) porque no hace falta una tabla de "letra base" — el cirílico no tiene variantes con acento que fundir, ordenar por punto de código ya da el alfabeto correcto. La clave cae después de Latin-1/ASCII y del resto de multibyte, así que un catálogo con las dos escrituras no se entrelaza mal.
+- 24 comprobaciones nuevas en `test/test_lang.c` cubren esto explícitamente (mayúsculas de toda la fila р..я, la excepción ё, y cuatro pares de orden cirílico-cirílico y cirílico-Latin).
+- **`test_all_languages_complete()`** (nueva): recorre las 137 claves en los 6 idiomas verificando que ninguna quede vacía — una tabla con un hueco se ve exactamente como texto ausente en la UI, invisible a simple vista en una revisión de código. 885 comprobaciones totales en `test_lang`, 0 fallos.
+
+### Hallazgo: `gen_fonts.sh` nunca respetó `-s`/`-l` — desde M-010
+
+Al medir el tamaño de las fuentes antes/después de sumar cirílico (punto 2 del plan), el archivo `.fnt` salió **byte idéntico** con `LIMIT` en `0x17F` o en `0x4FF`. Causa: `tools/convttf.c` parsea `-s`/`-l`/`-D` con `atoi()`/`atol()`, que no entienden el prefijo `0x` (se detienen en la `x`, devuelven 0); con `-l 0` convttf cae en su propio default ("último glifo del font") y con `-s 0` arranca en el primer glifo que Selawik define (U+000D, no el espacio). **`gen_fonts.sh` ha generado, desde M-010, fuentes con el rango NATIVO completo de Selawik (hasta U+2122, ~8 500 entradas de tabla)** sin que `START`/`LIMIT`/`DEFAULT` tuvieran ningún efecto real — un desperdicio de tabla considerable (Metro nunca necesitó símbolos como ⅓, ∑ o Ω) que además, por pura coincidencia, es lo que evitó que faltaran glifos en español/inglés hasta ahora (el rango nativo de Selawik ya cubría 0x20-0x336, más que el 0x17F que el script creía estar pidiendo).
+
+**Corrección**: `START=32`/`LIMIT=1279`/`DEFAULT=63` en decimal, no hex — no se tocó `tools/convttf.c` (archivo de Rockbox fuera de `apps/metro/`; el fix decimal es más chico, no requiere `MODIFICATIONS.md`, y es literalmente lo que el plan maestro ya pedía: "LIMIT=1279 (decimal, 0x4FF)"). Efecto colateral bienvenido: los 5 `.fnt` bajaron de **432 KB a 336 KB** en total (`metro-list-20.fnt`: 59 174 B → 33 327 B) — el rango ahora es el que se pidió, no el nativo completo de Selawik, y sigue siendo más chico porque ya no arrastra ~8 000 entradas de tabla vacías para símbolos que ninguna cadena de `metro_lang.c` usa.
+
+### Hallazgo bloqueante: Selawik no trae NINGÚN glifo cirílico
+
+Confirmado en tres capas independientes, no solo teoría:
+1. **`fontTools`** sobre `firmware/assets/fonts-src/Selawik-Regular.ttf`: 0 codepoints en U+0400-04FF en el cmap del archivo (máximo codepoint del font: U+2122).
+2. **Cabecera RB12** de la fuente regenerada: `lastchar = 0x336` — ni con `LIMIT=1279` pedido explícitamente aparece un solo glifo por encima de ese punto, porque no los hay que convertir.
+3. **Render real en el simulador**: arrancar con `language: ru` (una vez corregido un bug de build-staleness aparte, ver abajo) muestra el hub como `??????`/`?????`/`????`/`??????????` — cada letra cirílica cae en `defaultchar` ('?', 63) porque no existe glifo. Captura: `docs/screenshots/ajustes-2/m111-ru-check.png`.
+
+**No es un problema nuevo de esta ronda ni algo que un ajuste de `gen_fonts.sh` resuelva**: moonlit.aura ya documentó la misma clase de problema en D-066 (`moonlit_translit.c`, leído read-only como referencia para portar `check_fonts.py`) — pero su tabla de transliteración cubre **puntuación tipográfica** (comillas curvas, guiones, corcheas — 34 entradas, ninguna cirílica) con equivalente ASCII de un carácter, no un alfabeto completo. Transliterar ruso de verdad significaría romanizar cada cadena ("музыка" → "muzyka"), una decisión de diseño mucho más grande que "sustituir una comilla" y que ni moonlit resolvió — this repo tampoco la va a improvisar sin que el dueño la apruebe.
+
+**Se deja el ruso implementado a nivel de datos/lógica** (cadena, collation, mayúsculas — todo correcto y probado) **pero con el hueco de renderizado documentado explícitamente**, en vez de fingir que "Fase 3, seis idiomas" está completa. Las tres salidas posibles, para que el dueño decida:
+1. Sustituir Selawik por una fuente (o una segunda fuente cargada solo para cirílico) con cobertura real — cambia el diseño tipográfico, requiere elegir y vendorear un archivo nuevo con licencia compatible.
+2. Construir una tabla de romanización cirílico→latino completa (más grande que D-066, con reglas de transliteración real, no solo sustitución de símbolo).
+3. Aceptar el hueco por ahora y ocultar "Русский" del selector hasta que (1) o (2) se resuelvan — la fila de idioma en Ajustes ofrecería cinco, no seis, sin mentirle al usuario sobre qué puede leer.
+
+### `check_fonts.py --coverage`: el chequeo que lo hubiera atrapado
+
+Portado de moonlit (D-066, leído read-only), adaptado a la estructura de Metro: en vez de una lista de codepoints "de metadatos" separada, lee las seis tablas `strings_<idioma>[]` directamente del código fuente (`strings_(\w+)\[LANG_COUNT\]`), así que un séptimo idioma futuro no necesita tocar el script. Verifica la alineación cabecera→tabla de anchos igual que moonlit (el mismo cruce "el offset calculado debe terminar exactamente donde termina el archivo" que atrapa un desplazamiento corrido en silencio). Corriendo ahora mismo contra las fuentes reales: **0 faltantes en es/en/fr/de/it, 50/101 codepoints únicos faltantes en ru** — exactamente el hallazgo de arriba, pero mecánico y repetible en cada build, no algo que dependa de acordarse de mirar una captura. Cableado en `package_dist.sh`, mismo criterio que `stack_report.py` ("un paquete que no pasa esto no se publica") — así que un intento de release futuro con el hueco de ruso sin resolver falla ahí, no llega a manos del dueño como un release silenciosamente roto.
+
+De paso, el chequeo encontró un segundo hueco menor, preexistente desde antes de esta ronda: `LANG_LIST_TRUNCATED` ("…y más: la lista está llena", R5/M-087) usaba el carácter tipográfico de puntos suspensivos (U+2026), fuera de rango en las CINCO fuentes desde siempre — se veía como `?y más...` en español/inglés, nadie lo había notado. Corregido en las seis traducciones con tres puntos ASCII (`...`), mismo criterio que D-066 ya estableció para este tipo de puntuación.
+
+### Otro hallazgo, aparte: build-staleness enmascaraba el idioma ruso
+
+Al verificar `language: ru` por primera vez, el hub mostraba español en vez de ruso o "?????". Causa: `metro_settings.o` (build-sim) se había compilado ANTES de que `metro_lang.h` creciera a seis idiomas, con `METRO_LANG_COUNT` todavía en 2 -- `clamp_enum(4, 2)` descartaba silenciosamente el valor `4` (ruso) y lo dejaba en `0` (español), porque el sistema de build incremental no volvió a compilar `metro_settings.c` cuando su dependencia transitiva (`metro_lang.h`, incluido via `metro_settings.h`) cambió. Un `make clean` completo de `build-sim` lo resolvió y confirmó que el código en sí era correcto. Vale la pena que quien retome esto sepa que un `make` incremental de este árbol puede quedarse con objetos desactualizados tras editar solo un header muy incluido -- ante cualquier resultado que no cuadre con el código fuente, un `make clean` antes de seguir investigando ahorra tiempo.
+
+### Verificado
+
+- Todas las 137×6 cadenas presentes (`test_all_languages_complete()`), collation/mayúsculas cirílicas correctas (`test_cyrillic_upper`/`test_cyrillic_collate`), código de dos letras y nombre nativo para los seis (`test_lang`: 885 comprobaciones, 0 fallos). 13 suites de host en total, 0 fallos.
+- `check_fonts.py --coverage`: es/en/fr/de/it completos, ru documentado como incompleto (50/101).
+- Capturas en `docs/screenshots/ajustes-2/`: hub en en/fr/de/it (`m111-hub-*.png`), hub en ru mostrando el hueco de glifos (`m111-ru-check.png`), Ajustes en alemán mostrando el selector con nombre nativo "Deutsch" y filas largas sin cortarse (`m111-settings-de.png`, `m111-settings-de2.png`), splash "Bibliothek wird aktualisiert..." en alemán (`m111-updating-de.png`).
+- **Alcance reducido, con aviso explícito**: el plan pedía una matriz de capturas en los seis idiomas × seis pantallas (hub, lista, Ahora Suena, ajustes, bloqueo, acerca de) — no se completó la matriz de 36. Se priorizó verificar que las cinco escrituras Latin funcionan de punta a punta y documentar a fondo, con evidencia de tres capas, el hueco real de ruso, sobre producir capturas adicionales de idiomas ya confirmados. La lista de artistas en alemán/ruso (para ver el álbum cirílico/alemán nuevo de `gen_test_media.sh` en una cuadrícula real) no se capturó -- el simulador empezó a recibir `Killed: 9` en corridas largas hacia el final de esta fase, aparentemente por contención de recursos con otra sesión concurrente en esta misma máquina, no por un problema del código.
+- `gen_test_media.sh`: dos álbumes nuevos, mismo criterio que el fixture de "Ángela Ñu" (R4/FA-5a) -- contenido REAL en tags, no solo cadenas de UI. "Käthe Müller -- Glückspilz" (alemán, Eszett+diéresis) y "Пётр Чайковский -- Времена года" (ruso) bajo `$MUSIC_DIR/Gruen` y `$MUSIC_DIR/Chaykovskiy`. El álbum ruso queda además como evidencia permanente en el propio simulador del hueco de glifos hasta que se resuelva.
+- Target: 0 errores, 0 warnings nuevos. Simulador: 0 errores. `stack_report.py`: **OK**, 4 864 B (39,6 % de 12 288) -- sin cambio.
+
+**Archivos**: `metro_lang.c/.h` (seis tablas + cirílico en initial/upper/collate + selector), `metro_splash_lang.c` (seis columnas), `metro_screen_settings.c` (selector de 6, nombre nativo), `test/test_lang.c` (+34 comprobaciones netas: code/native_name/completeness/cirílico), `gen_fonts.sh` (bug de parseo hex corregido + LIMIT=1279), los 5 `.fnt` regenerados, `check_fonts.py` (nuevo, portado read-only de moonlit), `package_dist.sh` (gate nuevo), `gen_test_media.sh` (+2 álbumes).
+
+**Pendiente, explícito, no una lista de hardware sino una decisión del dueño**: el ruso necesita fuente con cirílico o una tabla de romanización antes de poder considerarse un idioma de verdad soportado -- ver las tres salidas arriba. La matriz completa de capturas de los seis idiomas queda para cuando esa decisión se tome (no tiene sentido documentar visualmente un idioma que hoy se ve como signos de interrogación).

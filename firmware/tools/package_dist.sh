@@ -127,6 +127,19 @@ fi
 echo "==> Reporte estático de pila (stack_report.py)"
 "$ROOT_DIR/firmware/tools/stack_report.py"
 
+# M-111 (ronda "ajustes 2", Fase 3, portado de moonlit D-066): las
+# fuentes .fnt son un rango DENSO -- una entrada de tabla por cada
+# codepoint entre firstchar y firstchar+size, exista glifo o no. Un
+# idioma cuyas cadenas piden un codepoint sin glifo real no falla al
+# compilar (cae en `defaultchar`, silenciosamente) -- este chequeo es
+# lo único que lo hubiera atrapado. Corre antes de empaquetar, mismo
+# criterio que stack_report.py: un paquete que no pasa esto no se
+# publica.
+echo "==> Cobertura de glifos (check_fonts.py --coverage)"
+python3 "$ROOT_DIR/firmware/tools/check_fonts.py" --coverage \
+  --fonts "$ROOT_DIR/firmware/assets/fonts" \
+  --lang "$ROOT_DIR/firmware/rockbox/apps/metro/metro_lang.c"
+
 echo "==> Empaquetando el árbol .rockbox/ real (make zip: códecs, rocks, viewers.config, codepages, langs)"
 (cd "$BUILD_DIR" && PATH="$TC_BIN:$PATH" make zip ${VERSION:+VERSION="$VERSION"})
 

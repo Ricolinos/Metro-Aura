@@ -27,9 +27,17 @@
  * Aura-Firmware's aura_lang.c (D-013, INVESTIGACION.md A.9). Spanish
  * by default (DECISIONS.md M-009); append-only as new screens land. */
 
+/* M-111 (ronda "ajustes 2", Fase 3, plan maestro SS D): fr/de/ru/it se
+ * suman a es/en. Orden fijo, nunca alfabetico -- es el orden en que el
+ * selector de Ajustes > idioma los ofrece (§D.2 del maestro), y el
+ * mismo orden en las tres familias por convencion del contrato. */
 enum metro_language {
     METRO_LANG_ES = 0,
     METRO_LANG_EN,
+    METRO_LANG_FR,
+    METRO_LANG_DE,
+    METRO_LANG_RU,
+    METRO_LANG_IT,
     METRO_LANG_COUNT
 };
 
@@ -62,8 +70,6 @@ enum metro_lang_id {
     LANG_SETTING_THEME,
     LANG_SETTING_ACCENT,
     LANG_SETTING_RESET,
-    LANG_VALUE_SPANISH,
-    LANG_VALUE_ENGLISH,
     LANG_VALUE_DARK,
     LANG_VALUE_LIGHT,
 
@@ -235,6 +241,12 @@ bool metro_lang_from_code(const char *code, enum metro_language *out);
 /* El codigo de dos letras de `lang` -- lo inverso de arriba, para
  * cuando Metro es quien escribe el archivo compartido. */
 const char *metro_lang_code(enum metro_language lang);
+
+/* M-111: nombre nativo de `lang` para el selector (Ajustes > idioma,
+ * plan maestro SS D.2: "Español · English · Français · Deutsch ·
+ * Русский · Italiano") -- SIEMPRE en su propio idioma, nunca pasa por
+ * metro_lang_str()/current_lang. Fuera de rango devuelve "". */
+const char *metro_lang_native_name(enum metro_language lang);
 
 /* R4/FA-5a (M-076): copia el PRIMER CARÁCTER de `s` -- no el primer
  * BYTE -- a `out`, en mayúscula si es una letra.

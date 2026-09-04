@@ -319,6 +319,30 @@ ffmpeg -y -loglevel error -f lavfi -i "sine=frequency=390:duration=2" \
   -metadata genre="Latin" -metadata track=1 \
   -c:a libmp3lame -b:a 96k "$MUSIC_DIR/Angela Nu/01 Cancion Nona.mp3"
 
+# M-111 (ronda "ajustes 2", Fase 3, plan maestro SS D.3): alemán real
+# (Eszett + diéresis) y cirílico real (ruso), mismo criterio que el
+# fixture de Ángela Ñu de arriba -- contenido REAL en la biblioteca,
+# no solo cadenas de UI traducidas, para ejercitar
+# metro_lang_collate()/metro_lang_initial()/metro_lang_upper() con
+# datos que vienen de fuera del firmware (tags de Studio), no solo de
+# metro_lang.c. El álbum cirílico también sirve como evidencia visual
+# permanente del hueco de cobertura de glifos que documenta
+# DECISIONS.md M-111 (Selawik no trae cirílico -- el título se ve como
+# "??????" hasta que se resuelva con una fuente o una transliteración).
+mkdir -p "$MUSIC_DIR/Gruen"
+ffmpeg -y -loglevel error -f lavfi -i "sine=frequency=410:duration=2" \
+  -metadata title="Straße der Größe" -metadata artist="Käthe Müller" \
+  -metadata album_artist="Käthe Müller" -metadata album="Glückspilz" \
+  -metadata genre="Schlager" -metadata track=1 \
+  -c:a libmp3lame -b:a 96k "$MUSIC_DIR/Gruen/01 Strasse der Groesse.mp3"
+
+mkdir -p "$MUSIC_DIR/Chaykovskiy"
+ffmpeg -y -loglevel error -f lavfi -i "sine=frequency=430:duration=2" \
+  -metadata title="Утро в Москве" -metadata artist="Пётр Чайковский" \
+  -metadata album_artist="Пётр Чайковский" -metadata album="Времена года" \
+  -metadata genre="Classical" -metadata track=1 \
+  -c:a libmp3lame -b:a 96k "$MUSIC_DIR/Chaykovskiy/01 Utro v Moskve.mp3"
+
 echo "==> Generando residuales de macOS de prueba (AppleDouble)"
 printf '\x00\x05\x16\x07appledouble de prueba' > "$OUT_DIR/Photos/._diagram.jpg"
 printf '\x00\x05\x16\x07appledouble de prueba' > "$OUT_DIR/Photos/._sunset.jpg"

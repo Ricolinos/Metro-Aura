@@ -28,6 +28,10 @@ typedef struct {
     int exact;          /* 1 = the whole text must match, 0 = prefix only */
     const char *es;
     const char *en;
+    const char *fr;
+    const char *de;
+    const char *ru;
+    const char *it;
 } splash_rule_t;
 
 /* Source strings copied verbatim from apps/lang/english.lang (the only
@@ -37,21 +41,37 @@ typedef struct {
  * prefixes go before their shorter variants. */
 static const splash_rule_t s_rules[] = {
     { "Loading... (",                              0,
-      "Cargando... (",                              "Loading... (" },
+      "Cargando... (",                              "Loading... (",
+      "Chargement... (",                            "Wird geladen... (",
+      "Загрузка... (",                               "Caricamento... (" },
     { "Loading...",                                1,
-      "Cargando...",                                "Loading..." },
+      "Cargando...",                                "Loading...",
+      "Chargement...",                              "Wird geladen...",
+      "Загрузка...",                                 "Caricamento..." },
     { "Scanning disk...",                          1,
-      "Preparando el disco...",                     "Preparing storage..." },
+      "Preparando el disco...",                     "Preparing storage...",
+      "Préparation du disque...",                   "Speicher wird vorbereitet...",
+      "Подготовка диска...",                         "Preparazione del disco..." },
     { "Shutting down...",                          1,
-      "Apagando...",                                "Shutting down..." },
+      "Apagando...",                                "Shutting down...",
+      "Extinction...",                              "Wird ausgeschaltet...",
+      "Выключение...",                               "Spegnimento..." },
     { "Database is not ready",                     1,
-      "Terminando de preparar la biblioteca...",    "Finishing up your library..." },
+      "Terminando de preparar la biblioteca...",    "Finishing up your library...",
+      "Finalisation de la bibliothèque...",         "Bibliothek wird fertiggestellt...",
+      "Библиотека почти готова...",                  "Completamento della libreria..." },
     { "WARNING! Low Battery! Shutting down...",    1,
-      "Bateria baja. Apagando...",                  "Low battery. Shutting down..." },
+      "Bateria baja. Apagando...",                  "Low battery. Shutting down...",
+      "Batterie faible. Extinction...",             "Akku schwach. Wird ausgeschaltet...",
+      "Низкий заряд. Выключение...",                 "Batteria scarica. Spegnimento..." },
     { "Battery empty! RECHARGE! Shutting down...", 1,
-      "Bateria agotada. Conecta el cargador.",      "Battery empty. Plug in your charger." },
+      "Bateria agotada. Conecta el cargador.",      "Battery empty. Plug in your charger.",
+      "Batterie épuisée. Branche le chargeur.",     "Akku leer. Ladegerät anschließen.",
+      "Батарея разряжена. Подключи зарядное устройство.", "Batteria esaurita. Collega il caricatore." },
     { "Committing database [",                     0,
-      "Preparando la biblioteca [",                 "Preparing your library [" },
+      "Preparando la biblioteca [",                 "Preparing your library [",
+      "Préparation de la bibliothèque [",           "Bibliothek wird vorbereitet [",
+      "Подготовка библиотеки [",                     "Preparazione della libreria [" },
 };
 
 void metro_splash_translate(char *buf, size_t bufsz)
@@ -69,7 +89,15 @@ void metro_splash_translate(char *buf, size_t bufsz)
         if (!matches)
             continue;
 
-        translated = (metro_lang_get() == METRO_LANG_EN) ? r->en : r->es;
+        switch (metro_lang_get())
+        {
+            case METRO_LANG_EN: translated = r->en; break;
+            case METRO_LANG_FR: translated = r->fr; break;
+            case METRO_LANG_DE: translated = r->de; break;
+            case METRO_LANG_RU: translated = r->ru; break;
+            case METRO_LANG_IT: translated = r->it; break;
+            default:            translated = r->es; break;
+        }
 
         if (r->exact)
         {

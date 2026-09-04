@@ -495,9 +495,10 @@ static void general_get_row(void *ctx, int index, struct metro_row *out)
     {
         case 0:
             out->title = metro_lang_str(LANG_SETTING_LANGUAGE);
-            out->subtitle = metro_lang_str(metro_lang_get() == METRO_LANG_ES
-                                                ? LANG_VALUE_SPANISH
-                                                : LANG_VALUE_ENGLISH);
+            /* M-111: nombre nativo, no metro_lang_str() -- el selector
+             * muestra los seis idiomas en su propio nombre (plan
+             * maestro SS D.2), no traducidos al idioma activo. */
+            out->subtitle = metro_lang_native_name(metro_lang_get());
             out->kind = METRO_ROW_SETTING;
             break;
         case 1:
@@ -588,8 +589,9 @@ static void general_on_select(void *ctx, int index)
     switch (index)
     {
         case 0:
-            metro_lang_set(metro_lang_get() == METRO_LANG_ES
-                                ? METRO_LANG_EN : METRO_LANG_ES);
+            /* M-111: cicla los seis en el orden fijo del enum, no un
+             * alterna binario -- ver DECISIONS.md M-111. */
+            metro_lang_set((enum metro_language)((metro_lang_get() + 1) % METRO_LANG_COUNT));
             metro_settings.language = metro_lang_get();
             metro_settings_save();
             metro_settings_shared_write(); /* M-110: language es compartido (SS A) */

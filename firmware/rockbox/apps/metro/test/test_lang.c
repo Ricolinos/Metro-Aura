@@ -198,7 +198,7 @@ static void test_upper(void)
     CHECK(out[0] == '\0');
 }
 
-/* M-110 (contrato v19 SS A.1): el codigo de dos letras que
+/* M-110/M-111 (contrato v19 SS A.1): el codigo de dos letras que
  * /.aura/settings.cfg usa para `language`. */
 static void test_code(void)
 {
@@ -206,16 +206,97 @@ static void test_code(void)
 
     CHECK(metro_lang_from_code("es", &lang) && lang == METRO_LANG_ES);
     CHECK(metro_lang_from_code("en", &lang) && lang == METRO_LANG_EN);
-    /* Reconocidos por el contrato, no implementados todavia (Fase 3
-     * de esta ronda) -- false, no basura. */
-    CHECK(!metro_lang_from_code("fr", &lang));
-    CHECK(!metro_lang_from_code("de", &lang));
-    CHECK(!metro_lang_from_code("ru", &lang));
-    CHECK(!metro_lang_from_code("it", &lang));
+    /* M-111: los seis del contrato ya estan implementados. */
+    CHECK(metro_lang_from_code("fr", &lang) && lang == METRO_LANG_FR);
+    CHECK(metro_lang_from_code("de", &lang) && lang == METRO_LANG_DE);
+    CHECK(metro_lang_from_code("ru", &lang) && lang == METRO_LANG_RU);
+    CHECK(metro_lang_from_code("it", &lang) && lang == METRO_LANG_IT);
     CHECK(!metro_lang_from_code("xx", &lang));
 
     CHECK(!strcmp(metro_lang_code(METRO_LANG_ES), "es"));
     CHECK(!strcmp(metro_lang_code(METRO_LANG_EN), "en"));
+    CHECK(!strcmp(metro_lang_code(METRO_LANG_FR), "fr"));
+    CHECK(!strcmp(metro_lang_code(METRO_LANG_DE), "de"));
+    CHECK(!strcmp(metro_lang_code(METRO_LANG_RU), "ru"));
+    CHECK(!strcmp(metro_lang_code(METRO_LANG_IT), "it"));
+}
+
+/* M-111: el nombre nativo del selector -- fijo, nunca traducido. */
+static void test_native_name(void)
+{
+    CHECK(!strcmp(metro_lang_native_name(METRO_LANG_ES), "Español"));
+    CHECK(!strcmp(metro_lang_native_name(METRO_LANG_EN), "English"));
+    CHECK(!strcmp(metro_lang_native_name(METRO_LANG_FR), "Français"));
+    CHECK(!strcmp(metro_lang_native_name(METRO_LANG_DE), "Deutsch"));
+    CHECK(!strcmp(metro_lang_native_name(METRO_LANG_RU), "Русский"));
+    CHECK(!strcmp(metro_lang_native_name(METRO_LANG_IT), "Italiano"));
+}
+
+/* M-111: metro_lang_str() debe devolver texto real (no "") para las
+ * 137 claves en los seis idiomas -- una tabla con un hueco (una clave
+ * olvidada al traducir) se ve exactamente como una cadena vacia en la
+ * UI, facil de no notar a simple vista. */
+static void test_all_languages_complete(void)
+{
+    enum metro_language lang;
+
+    for (lang = 0; lang < METRO_LANG_COUNT; lang++)
+    {
+        enum metro_lang_id id;
+
+        metro_lang_set(lang);
+        for (id = 0; id < LANG_COUNT; id++)
+        {
+            checks++;
+            if (metro_lang_str(id)[0] == '\0')
+            {
+                failures++;
+                printf("FALLO %s:%d: idioma %d, LANG id %d vacio\n",
+                       __FILE__, __LINE__, (int)lang, (int)id);
+            }
+        }
+    }
+    metro_lang_set(METRO_LANG_ES);
+}
+
+/* M-111: mayusculas cirilicas (metro_lang_upper(), usada en la linea
+ * de artista de Ahora Suena) -- а..п con el mismo desplazamiento que
+ * Latin-1, р..я cruzando el guia UTF-8, y la excepcion real ё->Ё. */
+static void test_cyrillic_upper(void)
+{
+    char out[64];
+
+    metro_lang_upper("музыка", out, sizeof(out));
+    CHECK(!strcmp(out, "МУЗЫКА"));
+
+    metro_lang_upper("пётр чайковский", out, sizeof(out));
+    CHECK(!strcmp(out, "ПЁТР ЧАЙКОВСКИЙ"));
+
+    /* Toda la fila р..я, para no dejar sin cubrir ninguna carta al
+     * otro lado del corte 0xD0/0xD1. */
+    metro_lang_upper("рстуфхцчшщъыьэюя", out, sizeof(out));
+    CHECK(!strcmp(out, "РСТУФХЦЧШЩЪЫЬЭЮЯ"));
+
+    /* Ya en mayuscula: se conserva tal cual. */
+    metro_lang_upper("МОСКВА", out, sizeof(out));
+    CHECK(!strcmp(out, "МОСКВА"));
+}
+
+/* M-111: orden cirilico -- alfabeto correcto, у antes de ф antes de я,
+ * y que no se cruce con el bloque Latin-1/ASCII. */
+static void test_cyrillic_collate(void)
+{
+    LT("Андрей", "Борис");
+    LT("Ёлка", "Жасмин");        /* Ё pliega justo antes de Ж */
+    LT("Чайковский", "Шостакович");
+    LT("Юрий", "Я");
+    /* Mayuscula/minuscula no cambia el orden relativo frente a otra
+     * palabra, igual que ya vale para Latin-1. */
+    LT("андрей", "Борис");
+    /* Cirilico ordena despues de Latin-1/ASCII -- un catalogo mixto
+     * (ver gen_test_media.sh) no intercala mal las dos escrituras. */
+    LT("Zoé", "Андрей");
+    LT("2 Unlimited", "Андрей");
 }
 
 int main(void)
@@ -228,6 +309,10 @@ int main(void)
     test_collate();
     test_upper();
     test_code();
+    test_native_name();
+    test_all_languages_complete();
+    test_cyrillic_upper();
+    test_cyrillic_collate();
 
     printf("%d checks, %d failures\n", checks, failures);
     return failures ? 1 : 0;
