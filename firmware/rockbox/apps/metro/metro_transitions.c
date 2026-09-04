@@ -183,6 +183,39 @@ void metro_transitions_slide(metro_transitions_draw_fn draw_to, int direction)
     note_transition_cost("slide", spec, start_tick);
 }
 
+void metro_transitions_slide_fast(metro_transitions_draw_fn draw_to, int direction)
+{
+    struct level_spec spec = anim_level_spec(effective_level());
+    long start_tick = current_tick;
+
+    /* La mitad de cuadros, mismo retardo entre ellos: acorta la
+     * animacion sin cambiar su cadencia ni su curva (el easing se
+     * calcula sobre spec.frames, asi que sigue llegando exactamente al
+     * final). Con 1 cuadro no se salta a "sin animacion": un solo
+     * cuadro a mitad de camino seria un parpadeo peor que nada, asi
+     * que el minimo animado son 2. */
+    if (spec.frames > 0)
+    {
+        spec.frames /= 2;
+        if (spec.frames < 2)
+            spec.frames = 2;
+    }
+
+    if (!lcd_active() || spec.frames == 0)
+    {
+        draw_to();
+        return;
+    }
+
+    metro_master_art_builder_pause(true);
+    metro_fb_capture(s_fb_from);
+    metro_fb_render(s_fb_to, draw_to);
+    run_slide(direction, spec);
+    metro_master_art_builder_pause(false);
+
+    note_transition_cost("slide_fast", spec, start_tick);
+}
+
 /* --- R3-F8/DD-9 (M-069): CONTINUUM --------------------------------------
  *
  * El título de la fila elegida vuela hasta la ceja de la página nueva

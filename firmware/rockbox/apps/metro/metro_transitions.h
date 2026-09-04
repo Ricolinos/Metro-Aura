@@ -43,6 +43,19 @@ typedef metro_fb_draw_fn metro_transitions_draw_fn;
  * table keeps SLIDE and PUSH/POP as separate rows. */
 void metro_transitions_slide(metro_transitions_draw_fn draw_to, int direction);
 
+/* M-106: el mismo deslizamiento, pero RAPIDO -- la mitad de cuadros.
+ *
+ * Existe por el visor de fotos, donde el plan maestro fija un tope de
+ * 150 ms y el deslizamiento normal dura 240 ms bajo `animations=all`
+ * (8 cuadros x 3 ticks). No es un capricho de cifra: en el visor cada
+ * cambio de foto ya paga un decode JPEG completo antes de poder
+ * animar, asi que la animacion es lo unico que se puede acortar sin
+ * perder nada -- y una pantalla ENTERA de foto deslizandose lee mucho
+ * mas rapido que una lista de texto, donde el ojo sigue palabras.
+ * 4 cuadros bajo `all` (120 ms) y 2 bajo `minimal` (60 ms); con las
+ * animaciones apagadas, igual que el normal, no anima en absoluto. */
+void metro_transitions_slide_fast(metro_transitions_draw_fn draw_to, int direction);
+
 /* PUSH/POP (deepening into a page / going back, PLAN_MAESTRO.md S3.3):
  * same direction convention as metro_transitions_slide() (> 0 push,
  * < 0 pop). Under animations=all AND graphics=full, substitutes

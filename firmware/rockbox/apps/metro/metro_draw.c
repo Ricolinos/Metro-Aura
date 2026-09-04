@@ -30,6 +30,7 @@
 #include "audio.h"
 #include "metro_theme.h"
 #include "metro_lang.h"
+#include "metro_marquee.h" /* M-106 */
 
 #define METRO_HEADER_HEIGHT 24
 
@@ -46,6 +47,17 @@ void metro_draw_clear(void)
  * Left set to FG afterward; nothing in apps/metro/ needs a SOLID
  * rectangle on purpose, so there is no restore step. See DECISIONS.md
  * M-051. */
+int metro_draw_text_width(enum metro_font_role role, const char *str)
+{
+    int w = 0, h;
+
+    if (!str)
+        return 0;
+    lcd_setfont(metro_font_id(role));
+    lcd_getstringsize((const unsigned char *)str, &w, &h);
+    return w;
+}
+
 void metro_draw_text(enum metro_font_role role, int x, int y,
                       const char *str, unsigned color)
 {
@@ -291,10 +303,17 @@ void metro_draw_rows_ex(const struct metro_pivot *pivot, int first, int sel,
             title_clip_w = LCD_WIDTH - 12 - sub_w - x - 8;
         }
 
-        metro_draw_text_cut_right(selected ? MFONT_LIST_SEL : MFONT_LIST, x, row_y,
-                                   row.title,
-                                   selected ? metro_color_fg() : metro_color_secondary(),
-                                   title_clip_w);
+        /* M-106 (plan maestro SS G): solo la fila CON FOCO desplaza. Las
+         * demas se cortan a la derecha como siempre -- mover seis
+         * textos a la vez seria ilegible, y ademas la fila que el
+         * usuario no puede leer entera es la que tiene elegida. */
+        if (selected)
+            metro_marquee_draw(METRO_MARQUEE_ROW, MFONT_LIST_SEL, x,
+                                title_clip_w, row_y, row.title,
+                                metro_color_fg());
+        else
+            metro_draw_text_cut_right(MFONT_LIST, x, row_y, row.title,
+                                       metro_color_secondary(), title_clip_w);
 
         y += METRO_ROW_PITCH;
     }
@@ -421,8 +440,10 @@ static void draw_tile_caption(const struct metro_pivot *pivot, int sel, int coun
                        - METRO_ROWS_LEFT_X - 8;
     }
 
-    metro_draw_text_cut_right(MFONT_CAPTION, METRO_ROWS_LEFT_X, y + 4,
-                               row.title, metro_color_fg(), title_clip_w);
+    /* M-106: el rotulo del tile seleccionado tambien desplaza -- es, por
+     * construccion, el unico texto de una cuadricula (R4/M-080). */
+    metro_marquee_draw(METRO_MARQUEE_TILE, MFONT_CAPTION, METRO_ROWS_LEFT_X,
+                        title_clip_w, y + 4, row.title, metro_color_fg());
 }
 
 void metro_draw_tiles(const struct metro_pivot *pivot, int first, int sel,

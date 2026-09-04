@@ -372,9 +372,13 @@ static void sentinel_get_row(void *ctx, int index, struct metro_row *out)
 static void sentinel_on_select(void *ctx, int index) { (void)ctx; (void)index; }
 
 static const struct metro_pivot sentinel_pivots[] = {
-    { LANG_HUB_PHOTOS, sentinel_count, sentinel_get_row, sentinel_on_select, NULL },
+    { .name = LANG_HUB_PHOTOS, .count = sentinel_count,
+      .get_row = sentinel_get_row, .on_select = sentinel_on_select },
 };
 static const struct metro_page sentinel_page = { LANG_HUB_PHOTOS, sentinel_pivots, 1, NULL };
+
+/* M-106: ver metro_screen_photo_viewer.h. */
+static int s_pending_slide = 0;
 
 bool metro_screen_photo_viewer_push(const metro_photo_item_t *items, int count, int start_index)
 {
@@ -391,6 +395,7 @@ bool metro_screen_photo_viewer_push(const metro_photo_item_t *items, int count, 
 
     s_loaded_index = -1;
     s_probed_index = -1;
+    s_pending_slide = 0; /* M-106: entrar al visor NO desliza (es un fade) */
     return true;
 }
 
@@ -437,6 +442,14 @@ void metro_screen_photo_viewer_show(void)
     lcd_update();
 }
 
+int metro_screen_photo_viewer_take_slide(void)
+{
+    int dir = s_pending_slide;
+
+    s_pending_slide = 0;
+    return dir;
+}
+
 void metro_screen_photo_viewer_handle(int action, int steps)
 {
     switch (action)
@@ -445,6 +458,11 @@ void metro_screen_photo_viewer_handle(int action, int steps)
         {
             int new_index = s_index - steps;
             if (new_index < 0) new_index = 0;
+            /* M-106: solo se anuncia el deslizamiento si la foto de
+             * verdad cambio -- en el primer o ultimo elemento, seguir
+             * apretando no debe animar nada. */
+            if (new_index != s_index)
+                s_pending_slide = -1;
             s_index = new_index;
             break;
         }
@@ -452,6 +470,8 @@ void metro_screen_photo_viewer_handle(int action, int steps)
         {
             int new_index = s_index + steps;
             if (new_index > s_count - 1) new_index = s_count - 1;
+            if (new_index != s_index)
+                s_pending_slide = 1;
             s_index = new_index;
             break;
         }
@@ -461,6 +481,13 @@ void metro_screen_photo_viewer_handle(int action, int steps)
             break;
         case MACT_BACK:
             metro_screen_list_pop();
+            /* M-106: la cuadricula queda sobre la foto que se estaba
+             * viendo, no sobre la que se abrio. Va DESPUES del pop
+             * porque hasta entonces el pivot "actual" es el centinela
+             * del visor, no la cuadricula. Si el usuario recorrio
+             * veinte fotos, volver al principio seria perder su
+             * lugar. */
+            metro_screen_list_set_sel(s_index);
             break;
         case MACT_HOME:
             metro_screen_list_pop_to_root();

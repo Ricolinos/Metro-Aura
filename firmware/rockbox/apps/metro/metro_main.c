@@ -53,6 +53,7 @@
 #include "metro_music.h" /* metro_music_db_ready() -- M-098 */
 #include "metro_master_art.h"         /* M-097 */
 #include "metro_master_art_builder.h" /* M-097 */
+#include "metro_marquee.h"           /* M-106: puerta de cuadros */
 #include "metro_screen_photo_viewer.h"
 #include "metro_screen_lock.h"
 
@@ -389,8 +390,14 @@ void metro_main(void)
         /* R5-F5 (M-085): espera más corta mientras la fila
          * "reproduciendo" del hub se anima, para que el tick llegue a
          * ~20 Hz; el resto del tiempo, la de siempre. */
+        /* M-106: misma cadencia mientras una marquesina esté
+         * desplazando. Se apaga sola en cuanto el texto cabe, el LCD se
+         * duerme o las animaciones están apagadas -- la puerta la
+         * decide metro_marquee_draw() en cada dibujo, no una pantalla
+         * declarando "yo animo". */
         int action = metro_input_next(ctx,
-                                      (at_root && metro_screen_hub_wants_ticks())
+                                      ((at_root && metro_screen_hub_wants_ticks()) ||
+                                       metro_marquee_wants_ticks())
                                           ? HZ / 20 : HZ / 10,
                                       &steps);
 
@@ -505,6 +512,13 @@ void metro_main(void)
                 metro_screen_hub_tick();
             }
 
+            /* M-106: un cuadro más de marquesina. Va antes del reparto
+             * por pantalla porque la marquesina existe en listas,
+             * cuadrículas y "Ahora Suena" por igual -- y
+             * redraw_current() ya sabe cuál dibujar. */
+            if (metro_marquee_wants_ticks())
+                redraw_current();
+
             if (!at_root && !at_player && !at_viewer)
             {
                 bool pending = metro_screen_list_has_pending_redraw();
@@ -552,6 +566,7 @@ void metro_main(void)
             bool viewer_before = at_viewer;
             int depth_after, pivot_after;
             bool root_after, player_after, viewer_after;
+            int photo_slide_dir;
 
             if (at_root)
                 metro_screen_hub_handle(action, steps);
@@ -561,6 +576,12 @@ void metro_main(void)
                 metro_screen_photo_viewer_handle(action, steps);
             else
                 metro_screen_list_handle(action, steps);
+
+            /* M-106: se consume SIEMPRE, justo después de la acción,
+             * aunque la rama elegida acabe siendo otra -- un anuncio
+             * que sobrevive a su propia acción reaparecería en la
+             * siguiente, deslizando algo que no cambió. */
+            photo_slide_dir = metro_screen_photo_viewer_take_slide();
 
             depth_after = metro_nav_depth(nav);
             pivot_after = metro_nav_pivot(nav);
@@ -587,6 +608,14 @@ void metro_main(void)
                 metro_transitions_push(redraw_current, -1);
             else if (!root_after && pivot_after != pivot_before)
                 metro_transitions_slide(redraw_current, pivot_after > pivot_before ? 1 : -1);
+            else if (viewer_after && photo_slide_dir != 0)
+                /* M-106: cambio de foto dentro del visor. No mueve
+                 * profundidad ni pivot, así que no hay nada que
+                 * diffear -- el visor lo ANUNCIA y aquí se elige la
+                 * transición, igual que CONTINUUM y FEATHER. Rápida
+                 * (tope de 150 ms del plan maestro): una pantalla
+                 * entera de foto se lee mucho antes que una lista. */
+                metro_transitions_slide_fast(redraw_current, photo_slide_dir);
             else
                 redraw_current();
         }

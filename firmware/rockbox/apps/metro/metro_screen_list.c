@@ -31,6 +31,7 @@
 #include "metro_motion.h"
 #include "metro_transitions.h"
 #include "metro_music.h" /* R4/FA-8: metro_music_playpause() */
+#include "metro_marquee.h" /* M-106 */
 
 static metro_nav_t s_nav;
 
@@ -75,6 +76,12 @@ metro_nav_t *metro_screen_nav(void)
     return &s_nav;
 }
 
+/* M-106: cualquier cambio de pantalla o de pivot olvida el reloj de las
+ * marquesinas. La comparacion de texto de cada ranura ya cubre el caso
+ * normal, pero no el borde: dos pantallas distintas cuyo primer texto
+ * coincida en los primeros 48 bytes heredarian el ciclo a mitad de
+ * camino, y la fila nueva empezaria a desplazarse sin el tramo quieto
+ * que hace falta para leerla. */
 bool metro_screen_list_push(const struct metro_page *page)
 {
     if (!metro_nav_push(&s_nav, page->npivots))
@@ -82,16 +89,19 @@ bool metro_screen_list_push(const struct metro_page *page)
 
     page_stack[metro_nav_depth(&s_nav) - 1] = page;
     s_feather_pending = true;
+    metro_marquee_reset();
     return true;
 }
 
 bool metro_screen_list_pop(void)
 {
+    metro_marquee_reset();
     return metro_nav_pop(&s_nav);
 }
 
 void metro_screen_list_pop_to_root(void)
 {
+    metro_marquee_reset();
     metro_nav_pop_to_root(&s_nav);
 }
 
@@ -108,6 +118,31 @@ static const struct metro_page *current_page(void)
 const struct metro_page *metro_screen_list_current_page(void)
 {
     return current_page();
+}
+
+void metro_screen_list_set_sel(int index)
+{
+    const struct metro_page *page = current_page();
+    const struct metro_pivot *pivot;
+    int count;
+
+    if (!page)
+        return;
+    pivot = &page->pivots[metro_nav_pivot(&s_nav)];
+    count = pivot->count(pivot->ctx);
+    if (index < 0 || index >= count)
+        return;
+
+    /* Se expresa como un MOVIMIENTO relativo en vez de agregar un
+     * metro_nav_set_sel_grid(): el ventaneo por filas de rejilla ya
+     * esta escrito y probado en metro_nav_move_sel_grid(), y duplicarlo
+     * para un "set" seria una segunda copia de la unica parte con
+     * aritmetica. Para las listas planas si existe el set directo. */
+    if (pivot->tile_cols > 0)
+        metro_nav_move_sel_grid(&s_nav, index - metro_nav_sel(&s_nav), count,
+                                 pivot->tile_cols, METRO_TILE_ROWS_VISIBLE);
+    else
+        metro_nav_set_sel(&s_nav, index, count, METRO_DRAW_ROWS_VISIBLE);
 }
 
 bool metro_screen_list_has_pending_redraw(void)
@@ -193,9 +228,11 @@ void metro_screen_list_handle(int action, int steps)
             }
             break;
         case MACT_PIVOT_PREV:
+            metro_marquee_reset(); /* M-106 */
             metro_nav_pivot_prev(&s_nav);
             break;
         case MACT_PIVOT_NEXT:
+            metro_marquee_reset(); /* M-106 */
             metro_nav_pivot_next(&s_nav);
             break;
         case MACT_SELECT:

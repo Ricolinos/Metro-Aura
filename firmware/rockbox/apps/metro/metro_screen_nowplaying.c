@@ -36,6 +36,7 @@
 #include "metro_screen_nowplaying.h"
 #include "metro_screen_list.h"
 #include "metro_draw.h"
+#include "metro_marquee.h" /* M-106 */
 #include "metro_theme.h"
 #include "metro_lang.h"
 #include "metro_widgets.h"
@@ -94,8 +95,12 @@ static void sentinel_get_row(void *ctx, int index, struct metro_row *out)
 { (void)ctx; (void)index; (void)out; }
 static void sentinel_on_select(void *ctx, int index) { (void)ctx; (void)index; }
 
+/* M-106: inicializadores designados, misma razón que en
+ * metro_screen_settings.c (M-103) -- struct metro_pivot sigue creciendo
+ * y los posicionales dejaban un warning por campo nuevo. */
 static const struct metro_pivot sentinel_pivots[] = {
-    { LANG_HUB_NOWPLAYING, sentinel_count, sentinel_get_row, sentinel_on_select, NULL },
+    { .name = LANG_HUB_NOWPLAYING, .count = sentinel_count,
+      .get_row = sentinel_get_row, .on_select = sentinel_on_select },
 };
 static const struct metro_page sentinel_page = { LANG_HUB_NOWPLAYING, sentinel_pivots, 1, NULL };
 
@@ -383,7 +388,8 @@ static void options_on_select(void *ctx, int index)
 }
 
 static const struct metro_pivot options_pivots[] = {
-    { LANG_NP_OPTIONS_TITLE, options_count, options_get_row, options_on_select, NULL },
+    { .name = LANG_NP_OPTIONS_TITLE, .count = options_count,
+      .get_row = options_get_row, .on_select = options_on_select },
 };
 static const struct metro_page options_page = { LANG_NP_OPTIONS_TITLE, options_pivots, 1, NULL };
 
@@ -673,15 +679,21 @@ void metro_screen_nowplaying_show(void)
         metro_lang_upper(id3->artist ? id3->artist
                                      : metro_lang_str(LANG_UNKNOWN_ARTIST),
                          upper, sizeof(upper));
-        metro_draw_text_cut_right(MFONT_LIST_SEL, NP_COL_X, NP_ARTIST_Y, upper,
-                                   metro_color_fg(), col_w);
-        metro_draw_text_cut_right(MFONT_LIST, NP_COL_X, NP_ALBUM_Y,
-                                   id3->album ? id3->album
-                                              : metro_lang_str(LANG_UNKNOWN_ALBUM),
-                                   metro_color_secondary(), col_w);
-        metro_draw_text_cut_right(MFONT_LIST, NP_COL_X, NP_TITLE_Y,
-                                   id3->title ? id3->title : "?",
-                                   metro_color_secondary(), col_w);
+        /* M-106 (plan maestro §G): las tres líneas desplazan si
+         * desbordan. Aquí no hay selección que mover -- las tres tienen
+         * el foco por igual -- y un título cortado es justo lo que el
+         * dueño no puede leer. */
+        metro_marquee_draw(METRO_MARQUEE_NP_ARTIST, MFONT_LIST_SEL, NP_COL_X,
+                            col_w, NP_ARTIST_Y, upper, metro_color_fg());
+        metro_marquee_draw(METRO_MARQUEE_NP_ALBUM, MFONT_LIST, NP_COL_X,
+                            col_w, NP_ALBUM_Y,
+                            id3->album ? id3->album
+                                       : metro_lang_str(LANG_UNKNOWN_ALBUM),
+                            metro_color_secondary());
+        metro_marquee_draw(METRO_MARQUEE_NP_TITLE, MFONT_LIST, NP_COL_X,
+                            col_w, NP_TITLE_Y,
+                            id3->title ? id3->title : "?",
+                            metro_color_secondary());
 
         draw_progress_and_times(id3);
     }

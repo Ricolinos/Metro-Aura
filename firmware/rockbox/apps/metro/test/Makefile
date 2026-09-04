@@ -8,7 +8,7 @@ BUILD := build
 
 .PHONY: test clean
 
-test: $(BUILD)/test_nav $(BUILD)/test_sync_marker $(BUILD)/test_device $(BUILD)/test_motion $(BUILD)/test_lrc $(BUILD)/test_artist_images $(BUILD)/test_fsutil $(BUILD)/test_lang $(BUILD)/test_volume $(BUILD)/test_firmware_families $(BUILD)/test_master_art
+test: $(BUILD)/test_nav $(BUILD)/test_sync_marker $(BUILD)/test_device $(BUILD)/test_motion $(BUILD)/test_lrc $(BUILD)/test_artist_images $(BUILD)/test_fsutil $(BUILD)/test_lang $(BUILD)/test_volume $(BUILD)/test_firmware_families $(BUILD)/test_master_art $(BUILD)/test_marquee
 	@echo "== test_nav =="
 	@$(BUILD)/test_nav
 	@echo "== test_sync_marker =="
@@ -31,6 +31,11 @@ test: $(BUILD)/test_nav $(BUILD)/test_sync_marker $(BUILD)/test_device $(BUILD)/
 	@$(BUILD)/test_firmware_families
 	@echo "== test_master_art =="
 	@$(BUILD)/test_master_art
+	@echo "== test_marquee =="
+	@$(BUILD)/test_marquee
+
+$(BUILD)/test_marquee: test_marquee.c ../metro_marquee_cycle.c | $(BUILD)
+	$(CC) $(CFLAGS) test_marquee.c ../metro_marquee_cycle.c -o $@
 
 $(BUILD)/test_nav: test_nav.c ../metro_nav.c ../metro_nav.h | $(BUILD)
 	$(CC) $(CFLAGS) test_nav.c ../metro_nav.c -o $@

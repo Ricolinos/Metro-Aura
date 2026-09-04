@@ -42,6 +42,14 @@ metro_nav_t *metro_screen_nav(void);
 /* Pushes page and a matching metro_nav_t frame together. Returns
  * false (no-op) if the stack is already at METRO_NAV_MAX_DEPTH. */
 bool metro_screen_list_push(const struct metro_page *page);
+
+/* M-106: fija la seleccion del pivot ACTUAL, con el ventaneo que
+ * corresponda (rejilla o lista, segun tile_cols). Existe para que el
+ * visor de fotos, al volver, deje la cuadricula sobre la foto que se
+ * estaba viendo y no sobre la que se abrio -- si el usuario recorrio
+ * veinte fotos, volver al principio es perder su lugar. Fuera de rango
+ * o sin pagina, no hace nada. */
+void metro_screen_list_set_sel(int index);
 bool metro_screen_list_pop(void);
 void metro_screen_list_pop_to_root(void);
 

@@ -985,3 +985,57 @@ Se agregó el token `HOLD` a `METRO_SIM_BUTTONS` (`sim_tasks.c`,
 registrado en `MODIFICATIONS.md`), que **conmuta** esa misma variable.
 Mismo carácter que `USB_INSERT` (M-039) y `POWEROFF`: tocar directo lo
 que el driver tocaría. Solo compila en el simulador.
+
+
+## R7-9 — La marquesina se PORTA de moonlit, y su `reset()` allá no se llama
+
+`PLAN-metro-ronda-homologacion.md` §Fase 4 pedía escribir la marquesina
+"como módulo `metro_marquee.c` (mismas constantes que Aura)".
+moonlit.aura ya la había implementado contra la misma especificación del
+maestro §G (D-067, commit `f38f723b`), con el reloj del ciclo en un
+módulo **puro** y 591 checks de host. Escribirla de nuevo habría
+producido dos aritméticas parecidas y ningún test compartido, así que se
+portó: mismo módulo puro, mismas constantes, los mismos 591 checks, y
+solo cambian los nombres y el conjunto de ranuras (Metro no tiene Marea
+y dibuja "Acerca de" por el camino genérico de filas).
+
+**Diferencia deliberada con el original**: moonlit declara
+`moonlit_marquee_reset()` en su cabecera —con el motivo escrito— pero no
+la llama desde ningún sitio. En Metro sí se llama, en `push`, `pop`,
+`pop_to_root` y al torcer de pivot. El caso borde es real aunque poco
+probable: dos pantallas distintas cuyo primer texto coincida en los
+primeros 48 bytes (el largo de la clave que compara cada ranura)
+heredarían el ciclo a mitad de camino, y la fila nueva empezaría a
+desplazarse sin el tramo quieto que hace falta para leerla. Ver
+`DECISIONS.md` M-106.
+
+## R7-10 — El deslizamiento del visor necesita su propia duración
+
+El plan pide para el visor de fotos un deslizamiento "≤ 150 ms" que
+"respeta el nivel de animación". `metro_transitions_slide()` dura
+**240 ms** bajo `animations=all` (8 cuadros × 3 ticks), así que no había
+forma de cumplir el tope reusándolo tal cual.
+
+Se agregó `metro_transitions_slide_fast()`: el mismo camino, con la
+mitad de cuadros (120 ms bajo `all`, 60 ms bajo `minimal`, nada con las
+animaciones apagadas). No es un número elegido para pasar la prueba: en
+el visor cada cambio de foto ya paga un decode JPEG completo antes de
+poder animar, y una pantalla entera de foto deslizándose se lee mucho
+antes que una lista de texto. El mínimo animado son 2 cuadros — uno solo
+sería un parpadeo a mitad de camino, peor que no animar.
+
+## R7-11 — Los umbrales de 1/5 min: escalar la UNIDAD, y por qué un segundo no alcanzaba
+
+La Fase 3 dejó los umbrales `tras 1 minuto` / `tras 5 minutos` sin
+verificar de punta a punta. Escalarlos bajo `#ifdef SIMULATOR` los vuelve
+capturables, pero el primer intento —un segundo por "minuto"— **falló**:
+el inyector headless separa dos tokens consecutivos por
+`METRO_INJECT_WAIT_TICKS` = 1 s, así que dos `HOLD` seguidos ya duran
+exactamente el umbral y el caso "soltar ANTES" era inexpresable. La
+corrida "falló" pidiendo el código cuando no debía, y la causa era el
+arnés, no el firmware.
+
+Con la unidad en **dos** segundos, `HOLD,HOLD` son 1 s (antes) y
+`HOLD,WAIT,WAIT,HOLD` son 3 s (después), y la razón 1:5 entre los dos
+umbrales se conserva. Los cuatro casos quedan capturados. Ver el
+addendum de `DECISIONS.md` M-104.

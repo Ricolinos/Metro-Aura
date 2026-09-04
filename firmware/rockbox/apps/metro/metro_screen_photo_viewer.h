@@ -55,6 +55,18 @@ bool metro_screen_photo_viewer_push(const metro_photo_item_t *items, int count,
 bool metro_screen_photo_viewer_is_current(void);
 
 void metro_screen_photo_viewer_show(void);
+
+/* M-106: direccion del deslizamiento que dejo pendiente el ultimo
+ * cambio de foto (+1 siguiente, -1 anterior, 0 ninguno) -- se CONSUME
+ * al leerla.
+ *
+ * La transicion no se dispara desde aqui a proposito: metro_main.c es
+ * el unico que elige transiciones, diffeando el nav antes y despues de
+ * la accion (F11/M-070), y un cambio de foto no mueve ni profundidad ni
+ * pivot, asi que no hay nada que diffear. Dejarla anunciada es el mismo
+ * mecanismo que ya usan CONTINUUM (metro_transitions_arm_continuum())
+ * y FEATHER: la pantalla dice QUE paso, el bucle decide COMO se ve. */
+int metro_screen_photo_viewer_take_slide(void);
 void metro_screen_photo_viewer_handle(int action, int steps);
 
 #endif /* METRO_SCREEN_PHOTO_VIEWER_H */

@@ -61,6 +61,13 @@ void metro_draw_clear(void);
 void metro_draw_text(enum metro_font_role role, int x, int y,
                       const char *str, unsigned color);
 
+/* M-106: ancho en pixeles de `str` en la fuente de `role` -- la misma
+ * medida que usa metro_draw_text(). Existe para que la marquesina
+ * (metro_marquee.h) decida si un texto desborda su banda sin que cada
+ * llamador repita el par lcd_setfont()/lcd_getstringsize() y sin
+ * arriesgarse a medir con un rol distinto del que dibuja. */
+int metro_draw_text_width(enum metro_font_role role, const char *str);
+
 /* Same, but clipped to a viewport of exactly clip_w pixels starting
  * at x -- for content that must never run into a fixed-width
  * neighbour (e.g. a row that must stop before a right-aligned icon).

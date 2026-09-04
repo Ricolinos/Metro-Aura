@@ -102,6 +102,16 @@ static const struct button_mapping player_mapping[] = {
 static const struct button_mapping viewer_mapping[] = {
     { MACT_PREV,             BUTTON_SCROLL_BACK,        BUTTON_NONE },
     { MACT_NEXT,             BUTTON_SCROLL_FWD,          BUTTON_NONE },
+    /* M-106 (plan maestro, Fase 4 del plan hijo): LEFT/RIGHT tambien
+     * pasan de foto. La rueda ya lo hacia, pero en un visor a pantalla
+     * completa el gesto que la mano espera es el del eje horizontal --
+     * es el mismo que en el reproductor pasa de pista. Se mapean a las
+     * MISMAS acciones que la rueda: pasar de foto es una sola operacion,
+     * no dos, y duplicar la accion duplicaria el sitio donde equivocarse.
+     * En el visor no hay pivots que torcer, asi que LEFT/RIGHT estaban
+     * libres. */
+    { MACT_PREV,             BUTTON_LEFT  | BUTTON_REL,  BUTTON_LEFT  },
+    { MACT_NEXT,             BUTTON_RIGHT | BUTTON_REL,  BUTTON_RIGHT },
     { MACT_TOGGLE_VIEW_MODE, BUTTON_SELECT | BUTTON_REL, BUTTON_SELECT },
     { MACT_BACK,             BUTTON_MENU | BUTTON_REL,   BUTTON_MENU },
     { MACT_HOME,             BUTTON_MENU | BUTTON_REPEAT, BUTTON_NONE },

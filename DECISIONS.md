@@ -3424,7 +3424,51 @@ Fila nueva en el pivot **"acerca de"** que abre `metro_screen_text.c/.h`, una pa
 - **"Solo al encender"**: con `screen_lock_require: 3` (`f3-pedir-codigo.png`), poner y quitar el Hold devuelve al hub **sin pedir nada** (`f3-boot-no-pide.png`). Es la prueba de que la regla se respeta y no solo de que existe.
 - `aura.cfg` guarda y relee las tres claves; quitar el bloqueo las borra las tres.
 
-**Límite declarado**: los umbrales de **1 y 5 minutos** no se ejercitaron de punta a punta (exigirían mantener el simulador corriendo esos minutos con el Hold puesto); la aritmética es una comparación de `current_tick` contra `60L * HZ`/`300L * HZ` con `s_hold_since` fijado en el flanco de subida. Va a la lista de verificación en hardware.
+**ADDENDUM (Fase 4, a pedido de la supervisora): los umbrales de 1 y 5 minutos SÍ se ejercitaron.**
+
+Al cerrar la Fase 3 quedaron declarados como no verificados: comprobarlos de verdad exigiría dejar el simulador corriendo cinco minutos con el Hold puesto **por cada uno de los cuatro casos** (soltar antes y después, para cada umbral). La salida es escalar la **unidad** bajo `#ifdef SIMULATOR`: `METRO_LOCK_HOLD_UNIT` vale un minuto en el aparato y **dos segundos** en el simulador. Lo que se prueba es exactamente el mismo código —la comparación, el origen `s_hold_since` y el flanco que lo fija son idénticos, solo cambia la constante— y la aritmética de hardware queda intacta.
+
+**Dos segundos y no uno**, que fue el primer intento: el inyector headless separa dos tokens consecutivos por `METRO_INJECT_WAIT_TICKS` = 1 s, así que con la unidad en 1 s el caso "soltar ANTES del umbral" era **inexpresable** — dos `HOLD` seguidos ya duran exactamente el umbral, y la primera corrida "falló" pidiendo el código cuando no debía. Con 2 s, `HOLD,HOLD` son 1 s (antes) y `HOLD,WAIT,WAIT,HOLD` son 3 s (después), y la razón 1:5 entre los dos umbrales se conserva.
+
+| Caso | Secuencia | Resultado | Captura |
+|---|---|---|---|
+| 1 min, soltar antes | `HOLD,HOLD` (1 s < 2 s) | vuelve al hub, **no pide** | `f4-1min-antes.png` |
+| 1 min, soltar después | `HOLD,WAIT,WAIT,HOLD` (3 s ≥ 2 s) | **pide el código** | `f4-1min-despues.png` |
+| 5 min, soltar antes | `HOLD` + 5 `WAIT` + `HOLD` (6 s < 10 s) | vuelve al hub, **no pide** | `f4-5min-antes.png` |
+| 5 min, soltar después | `HOLD` + 11 `WAIT` + `HOLD` (12 s ≥ 10 s) | **pide el código** | `f4-5min-despues.png` |
+
+Con esto los **cuatro** valores de `screen_lock_require` quedan verificados de punta a punta. Lo que sigue en la lista de hardware es solo que un minuto real dure un minuto, que es cosa del reloj del aparato y no de esta lógica.
+
+## M-106 — Marquesina de texto largo (portada de moonlit), LEFT/RIGHT en el visor de fotos y la cuadrícula que no pierde el lugar
+
+**Ronda "homologación", Fase 4 (P2).** Plan maestro §G más los dos puntos del visor del plan hijo.
+
+### Marquesina: PORTADA, no reescrita
+
+moonlit.aura ya la había implementado (D-067, commit `f38f723b`, leído en solo lectura) contra la misma especificación del maestro §G. Escribirla otra vez habría producido dos aritméticas parecidas y ningún test compartido, así que se **portó**: el reloj del ciclo es el mismo módulo puro, con las mismas constantes (**2 000 ms quieto, 5 000 ms desplazando, hueco de 24 px, dos copias**) y **los mismos 591 checks de host**, que ahora fijan la misma función en las dos familias. Lo único que cambia son los nombres y el conjunto de ranuras: moonlit tiene Marea y una lista de "Acerca de" propia; Metro dibuja "Acerca de" por el camino genérico de filas, así que le bastan cinco ranuras (fila, tile, y las tres líneas de Ahora Suena).
+
+- **`metro_marquee_cycle.c`** es puro —ni una dependencia de Rockbox— para que el arnés de host lo enlace solo, mismo patrón que `metro_master_art_format.c` (M-097). Ahí está todo lo que se puede equivocar sin que se note a simple vista: que el tramo quieto sea de verdad quieto, que el barrido llegue **exactamente** a `span_px` (si se queda corto o se pasa, el bucle tiene costura) y que un tiempo grande no desborde.
+- **Solo el texto CON FOCO desplaza**: la fila seleccionada de una lista, el rótulo del tile seleccionado, y las tres líneas de Ahora Suena (ahí no hay selección que mover — las tres tienen el foco por igual, y un título cortado es justo lo que el dueño no puede leer). Mover seis textos a la vez sería ilegible.
+- **Puerta de energía**: solo pide cuadros mientras hay un texto visible que desborda, `lcd_active()` es cierto y `animations != off`. Con las animaciones apagadas se corta a la derecha como siempre, ni un tick de más. La puerta la decide **el propio dibujo** (`metro_marquee_wants_ticks()`), no una pantalla declarando "yo animo": una pantalla que deja de dibujar una ranura la deja marcada como quieta sola.
+- **`metro_draw_text_width()`** nuevo en `metro_draw.c`: mide con la MISMA fuente con la que se dibuja. Si la medida y el dibujo usaran roles distintos, la marquesina arrancaría (o no) por unos píxeles de diferencia.
+
+**Desviación respecto del original**: moonlit **declara** `moonlit_marquee_reset()` en su cabecera pero **no la llama desde ningún sitio**. En Metro sí se llama —en `push`, `pop`, `pop_to_root` y al torcer de pivot— porque el caso borde es real: dos pantallas distintas cuyo primer texto coincida en los primeros 48 bytes heredarían el ciclo a mitad de camino, y la fila nueva empezaría a desplazarse sin el tramo quieto que hace falta para leerla. Anotado para que la supervisora lo lleve de vuelta.
+
+### Visor de fotos
+
+- **LEFT/RIGHT también pasan de foto.** La rueda ya lo hacía, pero en un visor a pantalla completa el gesto que la mano espera es el del eje horizontal — el mismo que en el reproductor pasa de pista. Se mapean a las **mismas** acciones que la rueda (`MACT_PREV`/`MACT_NEXT`): pasar de foto es una sola operación, y duplicar la acción duplicaría el sitio donde equivocarse. En el visor no hay pivots que torcer, así que LEFT/RIGHT estaban libres.
+- **Deslizamiento.** `metro_transitions_slide_fast()`: el mismo deslizamiento con **la mitad de cuadros** — 4 bajo `animations=all` (**120 ms**) y 2 bajo `minimal` (60 ms), contra los 240 ms del normal. El tope del plan es 150 ms y no es un capricho de cifra: en el visor cada cambio de foto ya paga un decode JPEG completo antes de poder animar, así que la animación es lo único que se puede acortar sin perder nada — y una pantalla **entera** de foto deslizándose se lee mucho antes que una lista de texto, donde el ojo sigue palabras. Con las animaciones apagadas no anima, igual que el normal. El mínimo animado son **2 cuadros**: uno solo sería un parpadeo a mitad de camino, peor que nada.
+- **Quién dispara la transición.** El visor **anuncia** la dirección (`metro_screen_photo_viewer_take_slide()`, se consume al leerla) y `metro_main.c` elige la transición, porque ese es el único sitio que las elige (F11/M-070, diffeando el nav antes y después) y un cambio de foto no mueve ni profundidad ni pivot: no hay nada que diffear. Es el mismo mecanismo de CONTINUUM y FEATHER — la pantalla dice QUÉ pasó, el bucle decide CÓMO se ve. Se consume **siempre**, justo después de la acción: un anuncio que sobreviviera a su propia acción reaparecería en la siguiente, deslizando algo que no cambió. Y solo se anuncia si la foto **de verdad** cambió: en el primer o último elemento, seguir apretando no anima nada.
+- **La cuadrícula conserva el lugar.** Al volver con MENU, la cuadrícula queda sobre la foto que se estaba viendo, no sobre la que se abrió: si el usuario recorrió veinte fotos, volver al principio sería perder su lugar. `metro_screen_list_set_sel()` (nuevo) se llama **después** del pop, porque hasta entonces el pivot "actual" es el centinela del visor. Para rejillas se expresa como un movimiento relativo sobre `metro_nav_move_sel_grid()` en vez de agregar un `set` nuevo: el ventaneo por filas ya está escrito y probado ahí, y duplicarlo sería una segunda copia de la única parte con aritmética.
+
+### Verificado
+
+- Target **0 errores, 0 warnings** (de paso, los últimos tres `-Wmissing-field-initializers` de `struct metro_pivot`, en `metro_screen_nowplaying.c` y `metro_screen_photo_viewer.c`, pasan a inicializadores designados como ya hizo M-103). Simulador 0 errores.
+- **12 suites host, 0 fallos** — `test_marquee` nuevo, **591/591**, portado junto con el módulo: si las dos familias comparten la aritmética, comparten también lo que la fija.
+- `stack_report.py` **OK** (4 864 B, 39,6 %).
+- Marquesina: fila de lista en el tramo **quieto** (`f4-marquesina-quieto.png`, el título cortado a la derecha) y en el de **barrido** (`f4-marquesina-barrido.png`, con la segunda copia entrando tras el hueco); rótulo de tile desplazando (`f4-marquesina-tile.png`). Las filas no seleccionadas no se mueven en ninguna.
+- Visor: **deslizamiento capturado a mitad de animación** (`f4-visor-deslizamiento.png`: la foto saliente por la izquierda y la entrante por la derecha), navegación con RIGHT (`f4-visor-right.png`) y **la cuadrícula devuelta sobre la tercera foto** tras dos RIGHT (`f4-visor-vuelve.png`).
+- Umbrales del bloqueo: las cuatro capturas del addendum de M-104.
 
 ## M-105 — La selección se perdía sobre los tiles: el acento puro deja de ser también el relleno de respaldo
 

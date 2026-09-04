@@ -457,6 +457,32 @@ static void run_resting(void)
     }
 }
 
+/* M-104 (addendum): la UNIDAD de los umbrales "tras 1 minuto" y "tras 5
+ * minutos". En el aparato es un minuto, y punto.
+ *
+ * En el SIMULADOR son DOS SEGUNDOS. Los dos umbrales son la unica parte
+ * de esta maquina de estados que no se podia ejercitar de punta a
+ * punta: comprobarlos de verdad exigiria dejar el simulador corriendo
+ * cinco minutos con el Hold puesto por cada uno de los cuatro casos
+ * (soltar antes y despues, para cada umbral). Escalando la unidad, los
+ * cuatro se capturan en segundos y lo que se prueba es exactamente el
+ * mismo codigo: la comparacion, el origen `s_hold_since` y el flanco
+ * que lo fija son identicos, solo cambia la constante. La aritmetica de
+ * hardware queda intacta.
+ *
+ * DOS segundos y no uno: el inyector headless separa dos tokens
+ * consecutivos por METRO_INJECT_WAIT_TICKS = 1 s
+ * (uisimulator/common/sim_tasks.c), asi que con la unidad en 1 s el
+ * caso "soltar ANTES del umbral" era inexpresable -- dos HOLD seguidos
+ * ya duran exactamente el umbral. Con 2 s, "HOLD,HOLD" son 1 s (antes)
+ * y "HOLD,WAIT,WAIT,HOLD" son 3 s (despues), y la razon 1:5 entre los
+ * dos umbrales se conserva. */
+#ifdef SIMULATOR
+#define METRO_LOCK_HOLD_UNIT (2L * HZ)
+#else
+#define METRO_LOCK_HOLD_UNIT (60L * HZ)
+#endif
+
 static void apply_require_on_release(void)
 {
     long held;
@@ -472,11 +498,11 @@ static void apply_require_on_release(void)
             s_state = METRO_LOCK_ACTIVE;
             break;
         case METRO_LOCK_REQUIRE_1MIN:
-            if (held >= 60L * HZ)
+            if (held >= 1L * METRO_LOCK_HOLD_UNIT)
                 s_state = METRO_LOCK_ACTIVE;
             break;
         case METRO_LOCK_REQUIRE_5MIN:
-            if (held >= 300L * HZ)
+            if (held >= 5L * METRO_LOCK_HOLD_UNIT)
                 s_state = METRO_LOCK_ACTIVE;
             break;
         case METRO_LOCK_REQUIRE_BOOT:
