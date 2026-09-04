@@ -3572,3 +3572,157 @@ Nota de continuidad, no una decisión. La sesión se pausó por cuota del dueño
 7. **Evaluar** (opcional, según presupuesto) el cambio de D-072 de moonlit: la maestra de una foto mide 80 px y el tile 80, así que el `.mth` de fotos es una copia byte a byte; moonlit lee la maestra directo en el dibujo de la rejilla con presupuesto de 4 lecturas por cuadro y ya no escribe `/.aura/thumbs/photos`. Compatible en las dos direcciones. **Cuidado documentado allá**: encolar cuando se agota el presupuesto del cuadro fue un bug real. Si no entra, anotarlo en `docs/COMPAT_STUDIO.md` como diferencia conocida.
 
 **Tag sugerido cuando el dueño lo pida: `v0.7.0`.**
+
+## Lista de verificación en hardware — ronda "homologación"
+
+Todo lo de esta ronda (M-100 a M-108) está verificado en simulador y con
+tests de host; lo que sigue **solo se puede confirmar en el iPod real**
+— el simulador escribe sobre el sistema de archivos del host (SSD), no
+sobre FAT real, no tiene RTC de verdad, y no ejecuta el bootloader en
+absoluto. La hace el dueño; agrupada por fase para que cada punto se
+pueda tachar contra la decisión que lo motivó.
+
+### Arranque y bootloader (M-107)
+
+- [ ] La marca ("metro" / "aura") aparece en el **mismo sitio exacto**
+      antes y después del handoff bootloader → firmware — sin salto, sin
+      parpadeo.
+- [ ] Las dos leyendas del bootloader (`metro · arranque <versión>` /
+      `Basado en Rockbox · GPL v2 · rockbox.org`) se leen bien en el
+      panel real, en gris sobre negro.
+- [ ] Conectar USB mientras el bootloader está en su pantalla: el
+      encabezado "Bootloader USB mode" sale en el mismo gris de leyenda;
+      las líneas de acción ("Plug USB cable", etc.) siguen en blanco.
+- [ ] Tras el handoff, la pantalla de arranque del **firmware**
+      (`show_logo_boot()`) ya no muestra "Ver. `<rbversion>`" — solo la
+      marca, sin salto respecto al bootloader.
+
+### Pila (M-101)
+
+- [ ] "Acerca de" → SELECT sostenido sobre la fila de versión revela la
+      fila oculta de marca de agua de pila; otro SELECT sostenido la
+      vuelve a ocultar.
+- [ ] Tras ~10 minutos de uso intenso (Estilo/Temas, fotos, USB
+      conectar/desconectar, Music Flow, cambiar de pivot repetidamente):
+      la marca de agua **< 75 %**.
+- [ ] Ningún `Stkov main` ni reinicio inesperado durante ese uso intenso.
+
+### Contrato v18 — caché maestra (M-102)
+
+- [ ] Carátulas 4:3 y 16:9 (el dueño tiene ejemplos) **sin glitch** en:
+      lista de álbumes, cuadrícula de álbumes, "Ahora Suena" (carátula
+      chica y fondo de pantalla completa), fondo sin mtime (el camino
+      que M-102 corrigió).
+- [ ] Reescribir `cover.jpg` de un álbum sin tocar ninguna pista (con
+      Aura Studio, o a mano por USB) y volver a entrar a Música: la
+      carátula nueva se ve, no la vieja.
+- [ ] **Tiempo real de la purga de `/.aura/art/format.txt`** con una
+      biblioteca de miles de pistas — el simulador midió ~100 ms sobre
+      2 048 archivos en SSD; el tope del plan maestro es ~2 s sobre FAT
+      antes de que la purga tenga que moverse al hilo del constructor.
+      Si excede ese tope de forma consistente, es trabajo de una fase
+      futura, no de esta.
+
+### Ajustes homologados (M-103)
+
+- [ ] Brillo: pantalla de barra con **10 pasos** visibles, cada paso se
+      aplica **en vivo** al girar la rueda (sin esperar a MENU).
+- [ ] Retroiluminación: misma pantalla de barra, 6 valores incluido
+      "nunca".
+- [ ] Apagado automático a **10 min**: sin actividad, el aparato se
+      apaga solo. Probar también 20 y 60 min y "nunca".
+- [ ] Clicker activado: se oye/siente el piezo en botones normales
+      (no en repeticiones de rueda salvo el primer paso).
+- [ ] Ajuste de volumen (replaygain) en sus tres valores, con pistas
+      que de verdad tengan ganancia de reproducción etiquetada.
+- [ ] Avisos legales: el texto se lee completo, se ajusta a la pantalla
+      y la rueda lo desplaza sin cortes.
+- [ ] Apagar y volver a encender el aparato: apagado automático y
+      clicker **conservan** el valor elegido (ya probado en simulador
+      con reinicio real del proceso, `f2-persistencia.png`; falta
+      confirmar que sobrevive un apagado/encendido real, no solo un
+      reinicio del simulador).
+
+### Bloqueo por Hold (M-104)
+
+- [ ] Activar el bloqueo (Ajustes › bloqueo › activar, capturar código
+      dos veces) → poner Hold → aparece la pantalla de bloqueo en
+      reposo (candado, reloj, batería, sin casillas) → quitar Hold →
+      pide el código de 4 dígitos.
+- [ ] "Pedir código: al bloquear" (default): quitar el Hold pide
+      siempre el código, sin importar cuánto estuvo puesto.
+- [ ] "Tras 1 minuto": soltar el Hold **antes** del minuto → vuelve
+      directo, sin pedir nada; soltar **después** → pide el código.
+      Repetir para "tras 5 minutos". (Verificado de punta a punta en el
+      simulador con la unidad escalada a 2 s — `f4-1min-antes.png` /
+      `…-despues.png` / `f4-5min-antes.png` / `…-despues.png`; en
+      hardware la única variable nueva es que un minuto real dure un
+      minuto real.)
+- [ ] "Solo al encender": poner y quitar el Hold **nunca** pide código;
+      apagar y volver a encender **sí** lo pide.
+- [ ] Ícono de candado en la barra de estado, con el Hold puesto
+      **≥ 2 s** (el sondeo es ≤ 100 ms): visible en menú raíz, lista de
+      álbumes, "Ahora Suena", Ajustes.
+- [ ] USB real durante el bloqueo: conecta y monta normal (es la salida
+      de emergencia — sin ella, una clave olvidada deja el aparato
+      inservible). Borrar `screen_lock`/`screen_lock_pin` de
+      `.rockbox/aura/aura.cfg` por USB y comprobar que el candado
+      desaparece **sin reiniciar**, al volver de la sesión USB.
+- [ ] **Comparar autonomía en reposo** con el bloqueo desactivado
+      contra activado (encargo de la supervisora). El addendum 2 de
+      M-104 argumenta por código que el sondeo del Hold no cuesta
+      batería en este target (`button_hold()` es una lectura de una
+      variable que la interrupción del PMU ya mantenía al día, no una
+      transacción I2C) — este punto es para confirmarlo con un
+      amperímetro o, a falta de eso, con la duración real de la
+      batería en dos cargas comparables.
+
+### Acento sobre tiles (M-105)
+
+- [ ] Cuadrícula de Artistas (la que más tiles de respaldo tiene): la
+      selección se distingue claramente del relleno en cualquier tema
+      y acento.
+- [ ] Cuadrícula de Álbumes con mezcla de carátulas reales y de
+      respaldo: el anillo interior de 1 px separa el marco de
+      selección de la imagen debajo, sin importar qué tan clara u
+      oscura sea la carátula.
+
+### Marquesina y visor de fotos (M-106)
+
+- [ ] Un título/artista/álbum largo en "Ahora Suena" desplaza tras
+      2 s quieto, a velocidad constante, sin saltos ni costura en el
+      bucle.
+- [ ] Una fila de lista o un rótulo de tile largos desplazan solo
+      cuando están seleccionados; el resto se recorta como siempre.
+- [ ] Visor de fotos: LEFT/RIGHT cambian de foto igual que la rueda,
+      con un deslizamiento visiblemente más corto que el de las listas.
+- [ ] Volver del visor con MENU dejando la cuadrícula sobre la foto que
+      se estaba viendo, no sobre la primera.
+
+### Empaquetado y reproducibilidad (M-108)
+
+- [ ] `firmware/tools/package_dist.sh` (sin `--release-tag`) corre
+      limpio de punta a punta en una máquina que no sea esta — confirma
+      que `TC_BIN` absoluto y `make dep` no dependían de algo particular
+      de este entorno.
+- [ ] Instalar el `rockbox.zip` + `rockbox.ipod` + `bootloader-ipod6g.ipod`
+      producidos por esta ronda en un iPod real (vía Aura Studio o a
+      mano) y confirmar que arranca, monta por USB, y que Studio lo
+      reconoce como una actualización selectiva válida (el mecanismo
+      lee `install_manifest.cfg` + CRC32 del directorio central del
+      `.zip`, que esta ronda no tocó).
+
+### Resumen de lo ya cerrado sin hardware, para contexto
+
+Verificado en simulador + tests de host, no repetido arriba: `stack_report.py`
+en verde (0 funciones de `apps/metro/` sobre 1 024 B, peor camino
+4 864 B = 39,6 % de 12 288); 12 suites de test de host, 0 fallos
+(incluido `test_marquee`, portado de moonlit, 591/591); reproducibilidad
+del empaquetado confirmada con dos corridas consecutivas del mismo
+commit (428 archivos, CRC32 idéntico en las 405+ entradas reales,
+binarios `rockbox.ipod`/`bootloader-ipod6g.ipod`/`mks5lboot` byte a
+byte idénticos) tras corregir el zip fantasma de M-108; build limpio
+del target y del bootloader desde cero, dos veces, 0 errores/0 warnings
+reales.
+
+**Tag sugerido cuando el dueño confirme lo de arriba en hardware: `v0.7.0`.**
