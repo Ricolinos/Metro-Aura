@@ -60,6 +60,11 @@ BUILD_DIR="$ROOT_DIR/firmware/build-ipod6g"
 BOOT_BUILD_DIR="$ROOT_DIR/firmware/build-ipod6g-boot"
 DIST_DIR="$ROOT_DIR/firmware/dist"
 TC_BIN="${RBDEV_TOOLCHAIN:-$ROOT_DIR/firmware/toolchain/bin}"
+# Metro (M-108): absoluto, por el mismo motivo que build_target.sh --
+# este script tambien hace `cd` antes de usarlo (make zip, mks5lboot).
+if [[ -d "$TC_BIN" ]]; then
+  TC_BIN="$(cd "$TC_BIN" && pwd)"
+fi
 
 if [[ ! -d "$TC_BIN" ]]; then
   echo "ERROR: no se encontró el toolchain en $TC_BIN" >&2
@@ -97,14 +102,28 @@ export VERSION="${GIT_HASH}${GIT_DIRTY}-$(date -u +%y%m%d)"
 echo "==> Versión: $VERSION"
 
 echo "==> Compilando firmware + bootloader (build_target.sh)"
+# Metro (M-108, D-348): con --release-tag, build_target.sh borra y
+# reconfigura cada directorio de build antes de compilar
+# (BUILD_TARGET_CLEAN=1) -- un release tiene que ser reproducible byte a
+# byte (contrato v11, actualización selectiva por CRC32 de Studio), y un
+# directorio de build reutilizado no lo garantiza aunque `make dep`
+# (dentro de build_target.sh) regenere la base de dependencias. Sin el
+# flag (build de desarrollo) solo corre `make dep`, que ya es lo que
+# hace falta para que el binario no dependa de cuándo se creó el
+# directorio.
+if [[ -n "$RELEASE_TAG" ]]; then
+  export BUILD_TARGET_CLEAN=1
+fi
 "$ROOT_DIR/firmware/tools/build_target.sh"
 
-# M-101: la pila del hilo principal no da ningún aviso al compilar --
-# se manifiesta como un `Stkov main` en el iPod. stack_report.py
-# recompila en un árbol aparte con -fstack-usage y falla si algún marco
-# de apps/metro/ pasa de 1 KB o si el peor camino estático desde main()
-# no cabe en el 75 % de la pila. Corre ANTES de empaquetar a propósito:
-# un paquete que no pasa este reporte no se publica.
+# M-101 (portado de Aura-Firmware, ver DECISIONS.md): la pila del hilo
+# principal no da ningún aviso al compilar -- se manifiesta como un
+# `Stkov main` en el iPod. stack_report.py mide el DESENSAMBLADO del
+# binario recién enlazado (no recompila con -fstack-usage: eso duplica
+# marcos que gcc integra por inlining) y falla si algún marco de
+# apps/metro/ pasa de 1 KB o si el peor camino estático desde main() no
+# cabe en el 75 % de la pila. Corre ANTES de empaquetar a propósito: un
+# paquete que no pasa este reporte no se publica.
 echo "==> Reporte estático de pila (stack_report.py)"
 "$ROOT_DIR/firmware/tools/stack_report.py"
 
