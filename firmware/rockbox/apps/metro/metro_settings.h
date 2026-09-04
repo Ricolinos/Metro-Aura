@@ -89,6 +89,13 @@ typedef struct {
      * botones en el bolsillo y quiere seguir donde estaba al quitarlo,
      * y hay quien lo usa como "guardar el aparato". */
     enum metro_lock_require screen_lock_require;
+    /* M-110 (contrato v19 SS A.2.1): la ultima revision de
+     * /.aura/settings.cfg que este arbol ya aplico (o escribio el
+     * mismo) -- lo que desempata "hay algo nuevo que aplicar" en el
+     * handoff (metro_settings_shared_apply_pending()) y lo que decide
+     * el numero de la proxima escritura propia
+     * (metro_settings_shared_write()). 0 = nunca se aplico nada. */
+    int shared_rev_applied;
 } metro_settings_t;
 
 extern metro_settings_t metro_settings;
@@ -253,5 +260,38 @@ bool metro_firmware_sibling_installed(int i);
  * Si ya existe /.firmware-metro (no deberia: Studio garantiza "nunca
  * dos de la misma familia") aborta sin tocar nada en vez de borrarlo. */
 bool metro_firmware_switch_to(int i);
+
+/* --- Contrato v19 (M-110, plan maestro SS A): /.aura/settings.cfg,
+ * los ajustes que Aura, Metro y moonlit leen y escriben por igual.
+ * El formato/parseo puro vive en metro_shared_settings.h; este modulo
+ * es el UNICO que abre el archivo (regla del CLAUDE.md: solo
+ * metro_settings.c/metro_sync.c/metro_device.c/
+ * metro_media_categories.c arman rutas bajo /.aura/) y el unico que
+ * conoce los rangos reales de brillo/retroiluminacion (constantes del
+ * target). */
+
+/* M-103, ahora compartido con la aplicacion del A.1: el nivel
+ * "prendido" de global_settings.keyclick (0..3 de Rockbox) que usa
+ * tanto la fila de Ajustes (metro_screen_settings.c) como la
+ * aplicacion de un settings.cfg entrante -- un solo numero mágico,
+ * no dos copias que se puedan desincronizar. */
+#define METRO_KEYCLICK_ON_LEVEL 2
+
+/* Boot y cada retorno de USB (mismo punto que
+ * metro_settings_apply_pending_clock()): si /.aura/settings.cfg
+ * existe, tiene la cabecera, y su `rev` es mayor que
+ * metro_settings.shared_rev_applied, aplica las 13 claves conocidas
+ * al estado vivo (global_settings + metro_settings) y sube
+ * shared_rev_applied. No-op si el archivo falta, no tiene cabecera,
+ * o no trae nada mas nuevo que lo ya aplicado (A.2.2/A.2.5). */
+void metro_settings_shared_apply_pending(void);
+
+/* Al cambiar una clave compartida en Ajustes (o al restablecer):
+ * captura el estado vivo actual en las 13 claves, sube `rev` en 1
+ * sobre shared_rev_applied, escribe updated_by=metro, y reescribe el
+ * archivo completo preservando cualquier clave desconocida que la
+ * ultima lectura haya visto (A.2.3). No aplica nada al estado vivo --
+ * el llamador ya lo cambio antes de llamar esto. */
+void metro_settings_shared_write(void);
 
 #endif /* METRO_SETTINGS_H */

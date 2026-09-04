@@ -39,6 +39,15 @@
 #include "metro_firmware_families.h" /* tabla de hermanos -- M-093 */
 #include "metro_thumbs.h" /* metro_thumbs_mark_dirty() -- M-096 */
 
+/* --- Contrato v19 (M-110): /.aura/settings.cfg ------------------------- */
+#include "metro_shared_settings.h"
+#include "backlight.h"    /* backlight_set_brightness()/_timeout() */
+#include "powermgmt.h"    /* set_poweroff_timeout() */
+#include "sound.h"        /* sound_min()/sound_max(SOUND_VOLUME) */
+#include "dsp_misc.h"      /* struct replaygain_settings, dsp_replaygain_set_settings() */
+#include "metro_volume.h" /* metro_volume_level_from_db()/db_from_level() */
+#include "metro_theme.h"  /* metro_theme_set() -- appearance */
+
 #define METRO_DIR      ROCKBOX_DIR "/aura"
 #define METRO_CFG_PATH METRO_DIR "/aura.cfg"
 
@@ -55,6 +64,7 @@ static const metro_settings_t defaults = {
     .screen_lock = false,
     .screen_lock_pin = "",
     .screen_lock_require = METRO_LOCK_REQUIRE_HOLD, /* M-104 */
+    .shared_rev_applied = 0, /* M-110 */
 };
 
 static int clamp_enum(int v, int count)
@@ -110,6 +120,8 @@ void metro_settings_load(void)
             else if (!strcmp(name, "screen_lock_require"))
                 metro_settings.screen_lock_require =
                     (enum metro_lock_require)clamp_enum(v, METRO_LOCK_REQUIRE_COUNT);
+            else if (!strcmp(name, "shared_rev_applied")) /* M-110 */
+                metro_settings.shared_rev_applied = v;
             /* firmware_family/sync_marker_supported: write-only, Aura
              * Studio reads these off the mounted disk -- never read back
              * here. rtc_sync_*: transient, only
@@ -144,6 +156,7 @@ void metro_settings_save(void)
     fdprintf(fd, "graphics: %d\n", metro_settings.graphics);
     fdprintf(fd, "tz_local_quarters: %d\n", metro_settings.tz_local_quarters);
     fdprintf(fd, "first_boot_done: %d\n", metro_settings.first_boot_done ? 1 : 0);
+    fdprintf(fd, "shared_rev_applied: %d\n", metro_settings.shared_rev_applied); /* M-110 */
 
     /* R3-F7/DD-8 (M-068): las dos claves del candado se escriben SOLO
      * cuando hay candado. Así, un aparato sin candado no las tiene en
@@ -210,6 +223,227 @@ void metro_settings_apply_pending_clock(void)
          * they disappear on their own, nothing to delete by hand. */
         metro_settings_save();
     }
+}
+
+/* --- Contrato v19 (M-110, plan maestro SS A): /.aura/settings.cfg ------ */
+
+#define AURA_SHARED_SETTINGS_PATH "/.aura/settings.cfg"
+
+/* Lineas de claves que el contrato ya reconoce pero que esta lectura
+ * no supo interpretar (`clave_futura` del vector A.3) -- se guardan
+ * verbatim (reconstruidas como "clave: valor\n", normalizadas por
+ * settings_parseline() como el resto de este archivo ya lo hace) para
+ * que la proxima escritura de este arbol no las borre (A.2.2). Vive
+ * entre una lectura y la siguiente escritura, nunca se persiste. */
+static char s_shared_extra[512];
+
+static bool shared_settings_read(metro_shared_settings_t *s)
+{
+    int fd;
+    char line[80];
+    bool first = true;
+
+    metro_shared_settings_defaults(s);
+    s_shared_extra[0] = '\0';
+
+    fd = open(AURA_SHARED_SETTINGS_PATH, O_RDONLY);
+    if (fd < 0)
+        return false;
+
+    while (read_line(fd, line, sizeof(line)) > 0)
+    {
+        char *name, *value;
+
+        if (first)
+        {
+            first = false;
+            if (!metro_shared_settings_is_header(line))
+            {
+                /* A.2.5: sin la cabecera exacta, el archivo entero se
+                 * trata como si no existiera. */
+                close(fd);
+                return false;
+            }
+            continue;
+        }
+        if (!settings_parseline(line, &name, &value))
+            continue;
+        if (!metro_shared_settings_parse_field(s, name, value))
+        {
+            size_t used = strlen(s_shared_extra);
+            size_t room = sizeof(s_shared_extra) - used;
+
+            snprintf(s_shared_extra + used, room, "%s: %s\n", name, value);
+        }
+    }
+    close(fd);
+    return true;
+}
+
+/* Aplica *s al estado vivo (global_settings + metro_settings) y lo
+ * deja en disco. Usada tanto por metro_settings_shared_apply_pending()
+ * (un settings.cfg entrante con rev nueva) como por "restablecer
+ * ajustes" (metro_screen_settings.c), que arma un *s de valores por
+ * defecto y llama esto para que el estado vivo y lo que se va a
+ * escribir después nunca queden desincronizados entre sí. */
+static void shared_settings_apply_now(const metro_shared_settings_t *s)
+{
+    metro_settings.screen_lock = s->screen_lock_enabled;
+    if (s->screen_lock_enabled)
+    {
+        strlcpy(metro_settings.screen_lock_pin, s->screen_lock_pin,
+                 sizeof(metro_settings.screen_lock_pin));
+        metro_settings.screen_lock_require = s->screen_lock_require;
+    }
+    else
+        metro_settings.screen_lock_pin[0] = '\0';
+
+    /* Brillo: el modulo puro solo descarta un disparate como el
+     * "brightness: 999" del vector A.3 (METRO_SHARED_BRIGHTNESS_SANE_MAX,
+     * sin conocer el target); el rango REAL del panel se revisa aqui,
+     * la unica capa que sabe cual es -- fuera de rango, se ignora esta
+     * clave sola (A.2.2), el brillo actual no se toca. */
+    if (s->brightness >= MIN_BRIGHTNESS_SETTING && s->brightness <= MAX_BRIGHTNESS_SETTING)
+    {
+        global_settings.brightness = s->brightness;
+        backlight_set_brightness(global_settings.brightness);
+    }
+
+    /* Retroiluminacion y apagado automatico ya viajan en la unidad
+     * nativa del campo real (segundos con -1=nunca; minutos con
+     * 0=nunca) -- A.1 lo dice explicito, no hace falta traducir nada. */
+    global_settings.backlight_timeout = s->backlight_timeout;
+    backlight_set_timeout(global_settings.backlight_timeout);
+
+    global_settings.poweroff = s->idle_poweroff;
+    set_poweroff_timeout(global_settings.poweroff);
+
+    global_settings.keyclick = s->keyclick ? METRO_KEYCLICK_ON_LEVEL : 0;
+#ifdef HAVE_HARDWARE_CLICK
+    global_settings.keyclick_hardware = s->keyclick;
+#endif
+
+    /* Limite de volumen: dB nativo, pero redondeado al nivel de Metro
+     * mas cercano (metro_volume.h) -- el plan maestro pide justo eso
+     * ("Metro/moonlit mapean a su nivel mas cercano"), y de paso
+     * garantiza que el campo aplicado sea siempre uno de los 16
+     * valores que la fila de Ajustes puede producir, nunca un dB
+     * arbitrario que esa fila jamas hubiera escrito. */
+    {
+        int min_db = sound_min(SOUND_VOLUME), max_db = sound_max(SOUND_VOLUME);
+        int level = metro_volume_level_from_db(s->volume_limit, min_db, max_db);
+
+        global_settings.volume_limit = metro_volume_db_from_level(level, min_db, max_db);
+    }
+
+    /* Replaygain: los mismos tres valores/simbolos que
+     * metro_screen_settings.c usa ahora (M-110 corrigio el "apagado"
+     * de esa fila, que llevaba desde M-103 un literal que no apagaba
+     * nada de verdad -- ver el comentario junto a replaygain_steps[]). */
+    global_settings.replaygain_settings.type =
+        s->replaygain == METRO_SHARED_RG_TRACK ? REPLAYGAIN_TRACK
+      : s->replaygain == METRO_SHARED_RG_ALBUM ? REPLAYGAIN_ALBUM
+      : REPLAYGAIN_OFF;
+    dsp_replaygain_set_settings(&global_settings.replaygain_settings);
+
+    /* Idioma: solo si este firmware ya lo implementa -- fr/de/ru/it
+     * llegan en la Fase 3 de esta ronda; hasta entonces, un codigo que
+     * el contrato reconoce pero Metro no puede aplicar se ignora igual
+     * que cualquier otra clave fuera de rango (A.2.2). */
+    {
+        enum metro_language lang;
+
+        if (metro_lang_from_code(s->language, &lang))
+        {
+            metro_lang_set(lang);
+            metro_settings.language = lang;
+        }
+    }
+
+    /* Apariencia: el enum de Metro YA es dark/light, el mismo par que
+     * el contrato -- sin tabla de conversion que mantener. */
+    metro_theme_set(s->appearance);
+    metro_settings.theme = s->appearance;
+
+    metro_settings_save();
+    settings_save();
+    call_storage_idle_notifys(true); /* M-103: flush ya, no en 30s */
+}
+
+/* Lo inverso de shared_settings_apply_now(): el estado vivo actual,
+ * empaquetado para escribir. `rev`/`updated_by` los pone el llamador
+ * (metro_settings_shared_write()) -- capturar no es lo mismo que
+ * decidir el numero de revision. */
+static void shared_settings_capture(metro_shared_settings_t *s)
+{
+    metro_shared_settings_defaults(s);
+
+    s->screen_lock_enabled = metro_settings.screen_lock;
+    strlcpy(s->screen_lock_pin, metro_settings.screen_lock_pin,
+             sizeof(s->screen_lock_pin));
+    s->screen_lock_require = metro_settings.screen_lock_require;
+
+    s->brightness = global_settings.brightness;
+    s->backlight_timeout = global_settings.backlight_timeout;
+    s->idle_poweroff = global_settings.poweroff;
+    s->keyclick = (global_settings.keyclick != 0);
+    s->volume_limit = global_settings.volume_limit;
+
+    s->replaygain = global_settings.replaygain_settings.type == REPLAYGAIN_TRACK
+                        ? METRO_SHARED_RG_TRACK
+                    : global_settings.replaygain_settings.type == REPLAYGAIN_ALBUM
+                        ? METRO_SHARED_RG_ALBUM
+                        : METRO_SHARED_RG_OFF;
+
+    strlcpy(s->language, metro_lang_code(metro_settings.language), sizeof(s->language));
+    s->appearance = metro_settings.theme;
+}
+
+void metro_settings_shared_apply_pending(void)
+{
+    metro_shared_settings_t s;
+
+    if (!shared_settings_read(&s))
+        return;
+    if (s.rev <= metro_settings.shared_rev_applied)
+        return; /* nada mas nuevo que lo que este arbol ya aplico */
+
+    shared_settings_apply_now(&s);
+    metro_settings.shared_rev_applied = s.rev;
+    metro_settings_save();
+}
+
+void metro_settings_shared_write(void)
+{
+    metro_shared_settings_t s;
+    int fd;
+    int i;
+
+    shared_settings_capture(&s);
+    s.rev = metro_settings.shared_rev_applied + 1;
+    s.updated_by = METRO_SHARED_BY_METRO;
+
+    if (!dir_exists("/.aura"))
+        mkdir("/.aura");
+
+    fd = creat(AURA_SHARED_SETTINGS_PATH, 0666);
+    if (fd < 0)
+        return;
+
+    fdprintf(fd, "%s\n", METRO_SHARED_SETTINGS_HEADER);
+    for (i = 0; i < METRO_SHARED_SETTINGS_KEY_COUNT; i++)
+    {
+        char buf[80];
+
+        if (metro_shared_settings_format_field(&s, i, buf, sizeof(buf)) > 0)
+            fdprintf(fd, "%s", buf);
+    }
+    if (s_shared_extra[0])
+        fdprintf(fd, "%s", s_shared_extra);
+    close(fd);
+
+    metro_settings.shared_rev_applied = s.rev;
+    metro_settings_save();
 }
 
 void metro_ensure_media_dirs(void)

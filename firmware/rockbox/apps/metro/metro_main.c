@@ -258,6 +258,10 @@ void metro_run_sync_screen_if_needed(void)
 static void metro_disk_handoff(void)
 {
     metro_settings_apply_pending_clock();
+    /* M-110 (contrato v19 SS A.2.2): mismo punto que la hora -- si
+     * /.aura/settings.cfg trae una rev mas nueva que la que este
+     * arbol ya aplico, se aplica ahora. */
+    metro_settings_shared_apply_pending();
     /* R2-F1/DD-4 (M-054): a fresh disk (first boot, or a USB session
      * that just mounted a different volume) may not have any of the
      * four media folders yet -- ensure they exist before anything

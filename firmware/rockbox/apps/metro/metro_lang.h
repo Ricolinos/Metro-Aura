@@ -20,6 +20,7 @@
 #ifndef METRO_LANG_H
 #define METRO_LANG_H
 
+#include <stdbool.h>
 #include <stddef.h>
 
 /* Own string table, no Rockbox .lang system -- same mechanism as
@@ -221,6 +222,19 @@ enum metro_lang_id {
 void metro_lang_set(enum metro_language lang);
 enum metro_language metro_lang_get(void);
 const char *metro_lang_str(enum metro_lang_id id);
+
+/* M-110 (ronda "ajustes 2", contrato v19 SS A.1): el codigo de dos
+ * letras que /.aura/settings.cfg usa para `language`, unico lugar
+ * fuera de este modulo donde ese codigo viaja. Devuelve false para un
+ * codigo que el contrato reconoce pero que este firmware TODAVIA no
+ * implementa (fr/de/ru/it -- Fase 3 de esta ronda); metro_settings.c
+ * ya trata eso igual que cualquier clave conocida con un valor que no
+ * puede aplicar (deja el idioma como estaba). */
+bool metro_lang_from_code(const char *code, enum metro_language *out);
+
+/* El codigo de dos letras de `lang` -- lo inverso de arriba, para
+ * cuando Metro es quien escribe el archivo compartido. */
+const char *metro_lang_code(enum metro_language lang);
 
 /* R4/FA-5a (M-076): copia el PRIMER CARÁCTER de `s` -- no el primer
  * BYTE -- a `out`, en mayúscula si es una letra.

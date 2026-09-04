@@ -185,6 +185,7 @@ static void cycle_volume_limit(void)
         }
     metro_music_set_volume_limit_level(next);
     call_storage_idle_notifys(true); /* M-103: ver settings_save_now() */
+    metro_settings_shared_write(); /* M-110: volume_limit es compartido (SS A) */
 }
 
 /* M-103: guardar un ajuste de Rockbox Y dejarlo en disco AHORA.
@@ -244,20 +245,32 @@ static void cycle_poweroff(void)
     global_settings.poweroff = next;
     set_poweroff_timeout(next);
     settings_save_now();
+    metro_settings_shared_write(); /* M-110: idle_poweroff es compartido (SS A) */
 }
 
-/* M-103 (P2 de la fase, matriz SS C "Ajuste de volumen"): replaygain.
- * Tres valores, los mismos que ofrece Aura -- apagado / pista / album
- * -- sobre `global_settings.replaygain_settings.type`
- * (lib/rbcodec/dsp/dsp_misc.h: 0 = pista, 1 = album, 2 = pista si hay
- * aleatorio, 4 = apagado). El valor 2 NO se expone: "depende de si el
- * aleatorio esta puesto" es una regla que el usuario no puede deducir
- * de una fila de dos palabras, y las tres familias tienen que ofrecer
- * lo mismo.
+/* M-103 (P2 de la fase, matriz SS C "Ajuste de volumen"), valor de
+ * "apagado" corregido en M-110: replaygain. Tres valores, los mismos
+ * que ofrece Aura -- apagado / pista / album -- sobre
+ * `global_settings.replaygain_settings.type`
+ * (lib/rbcodec/dsp/dsp_misc.h: enum replaygain_types { TRACK=0,
+ * ALBUM=1, SHUFFLE=2, OFF=3 }). El valor SHUFFLE ("pista si hay
+ * aleatorio") NO se expone: "depende de si el aleatorio esta puesto"
+ * es una regla que el usuario no puede deducir de una fila de dos
+ * palabras, y las tres familias tienen que ofrecer lo mismo.
  *
- * `dsp_replaygain_set_settings()` aplica en vivo; el struct entero es
- * lo que persiste en config.cfg. */
-static const int replaygain_steps[] = { 4, 0, 1 }; /* apagado, pista, album */
+ * M-110: esta fila usaba el literal 4 para "apagado" -- un desliz de
+ * conteo (el enum real llega solo hasta 3). dsp_replaygain_update()
+ * (dsp_misc.c) compara con `!= REPLAYGAIN_OFF`, así que un `type == 4`
+ * SIGUE calculando y aplicando ganancia (cae en la misma rama que
+ * "prendido") -- elegir "apagado" en esta fila nunca apagó ReplayGain
+ * de verdad, desde que la fila existe (M-103, ya en v0.7.0). Se
+ * encontró leyendo dsp_misc.c para saber qué valor usar al aplicar
+ * `replaygain` desde /.aura/settings.cfg (SS A de esta ronda) y se
+ * corrige aquí mismo: los símbolos reales del enum, no literales, para
+ * que este desliz no se repita si el enum vuelve a cambiar. */
+static const int replaygain_steps[] = {
+    REPLAYGAIN_OFF, REPLAYGAIN_TRACK, REPLAYGAIN_ALBUM,
+};
 #define REPLAYGAIN_STEPS_N (int)(sizeof(replaygain_steps) / sizeof(replaygain_steps[0]))
 
 static const enum metro_lang_id replaygain_names[REPLAYGAIN_STEPS_N] = {
@@ -281,6 +294,7 @@ static void cycle_replaygain(void)
     global_settings.replaygain_settings.type = replaygain_steps[next];
     dsp_replaygain_set_settings(&global_settings.replaygain_settings);
     settings_save_now();
+    metro_settings_shared_write(); /* M-110: replaygain es compartido (SS A) */
 }
 
 /* M-103: clicker. UN solo interruptor, como el iPod original y como
@@ -299,9 +313,12 @@ static void cycle_replaygain(void)
  * estar prendido; ver el retiro del forzado en metro_apply_hygiene()
  * (metro_main.c, M-103). El valor 2 ("moderate" en la escala 0..3 de
  * Rockbox) es el medio de la escala: un clic de interfaz no deberia
- * ser lo mas fuerte que el aparato sabe hacer. */
-#define METRO_KEYCLICK_ON_LEVEL 2
-
+ * ser lo mas fuerte que el aparato sabe hacer.
+ *
+ * M-110: METRO_KEYCLICK_ON_LEVEL se movió a metro_settings.h -- la
+ * aplicación de `keyclick` desde /.aura/settings.cfg (SS A) necesita
+ * el mismo número, y dos copias del mismo mágico en dos archivos es
+ * exactamente el tipo de cosa que se desincroniza sola. */
 static void toggle_keyclick(void)
 {
     bool on = (global_settings.keyclick != 0);
@@ -311,6 +328,7 @@ static void toggle_keyclick(void)
     global_settings.keyclick_hardware = !on;
 #endif
     settings_save_now();
+    metro_settings_shared_write(); /* M-110: keyclick es compartido (SS A) */
 }
 
 /* --- M-104: Ajustes > bloqueo (plan maestro SS D.6) --------------------
@@ -393,6 +411,7 @@ static void lock_on_select(void *ctx, int index)
                 (enum metro_lock_require)((metro_settings.screen_lock_require + 1)
                                            % METRO_LOCK_REQUIRE_COUNT);
             metro_settings_save();
+            metro_settings_shared_write(); /* M-110: screen_lock_require es compartido (SS A) */
             break;
         default:
             if (metro_widgets_confirm(metro_lang_str(LANG_SETTING_LOCK),
@@ -573,6 +592,7 @@ static void general_on_select(void *ctx, int index)
                                 ? METRO_LANG_EN : METRO_LANG_ES);
             metro_settings.language = metro_lang_get();
             metro_settings_save();
+            metro_settings_shared_write(); /* M-110: language es compartido (SS A) */
             break;
 
         case 1:
@@ -669,7 +689,20 @@ static void general_on_select(void *ctx, int index)
 #ifdef HAVE_HARDWARE_CLICK
                 global_settings.keyclick_hardware = false;
 #endif
+                /* M-110 (contrato v19 SS A.2.4): brillo, retroiluminación
+                 * y replaygain también son claves compartidas -- si esta
+                 * fila no los devolviera a un default de verdad, la
+                 * escritura de más abajo capturaría el valor que
+                 * tuvieran puesto (no un default) y "restablecer
+                 * ajustes" mentiría sobre lo que de verdad restableció. */
+                global_settings.brightness = DEFAULT_BRIGHTNESS_SETTING;
+                backlight_set_brightness(global_settings.brightness);
+                global_settings.backlight_timeout = 15;
+                backlight_set_timeout(global_settings.backlight_timeout);
+                global_settings.replaygain_settings.type = REPLAYGAIN_OFF;
+                dsp_replaygain_set_settings(&global_settings.replaygain_settings);
                 settings_save_now();
+                metro_settings_shared_write(); /* M-110: deja /.aura/settings.cfg al día */
             }
             break;
     }
@@ -846,6 +879,7 @@ static void display_on_select(void *ctx, int index)
                                  ? METRO_THEME_LIGHT : METRO_THEME_DARK);
             metro_settings.theme = metro_theme_get();
             metro_settings_save();
+            metro_settings_shared_write(); /* M-110: appearance es compartido (SS A) */
             break;
 
         case 1:
@@ -871,6 +905,7 @@ static void display_on_select(void *ctx, int index)
             metro_screen_adjust_run(&spec,
                                      brightness_step_of(global_settings.brightness));
             settings_save_now();
+            metro_settings_shared_write(); /* M-110: brightness es compartido (SS A) */
             break;
         }
 
@@ -884,6 +919,7 @@ static void display_on_select(void *ctx, int index)
             metro_screen_adjust_run(&spec,
                                      backlight_step_of(global_settings.backlight_timeout));
             settings_save_now();
+            metro_settings_shared_write(); /* M-110: backlight_timeout es compartido (SS A) */
             break;
         }
     }

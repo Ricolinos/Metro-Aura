@@ -198,6 +198,26 @@ static void test_upper(void)
     CHECK(out[0] == '\0');
 }
 
+/* M-110 (contrato v19 SS A.1): el codigo de dos letras que
+ * /.aura/settings.cfg usa para `language`. */
+static void test_code(void)
+{
+    enum metro_language lang;
+
+    CHECK(metro_lang_from_code("es", &lang) && lang == METRO_LANG_ES);
+    CHECK(metro_lang_from_code("en", &lang) && lang == METRO_LANG_EN);
+    /* Reconocidos por el contrato, no implementados todavia (Fase 3
+     * de esta ronda) -- false, no basura. */
+    CHECK(!metro_lang_from_code("fr", &lang));
+    CHECK(!metro_lang_from_code("de", &lang));
+    CHECK(!metro_lang_from_code("ru", &lang));
+    CHECK(!metro_lang_from_code("it", &lang));
+    CHECK(!metro_lang_from_code("xx", &lang));
+
+    CHECK(!strcmp(metro_lang_code(METRO_LANG_ES), "es"));
+    CHECK(!strcmp(metro_lang_code(METRO_LANG_EN), "en"));
+}
+
 int main(void)
 {
     test_ascii();
@@ -207,6 +227,7 @@ int main(void)
     test_degenerado();
     test_collate();
     test_upper();
+    test_code();
 
     printf("%d checks, %d failures\n", checks, failures);
     return failures ? 1 : 0;

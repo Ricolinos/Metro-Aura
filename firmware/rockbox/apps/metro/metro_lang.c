@@ -406,6 +406,18 @@ enum metro_language metro_lang_get(void)
     return current_lang;
 }
 
+bool metro_lang_from_code(const char *code, enum metro_language *out)
+{
+    if (!strcmp(code, "es")) { *out = METRO_LANG_ES; return true; }
+    if (!strcmp(code, "en")) { *out = METRO_LANG_EN; return true; }
+    return false;
+}
+
+const char *metro_lang_code(enum metro_language lang)
+{
+    return (lang == METRO_LANG_EN) ? "en" : "es";
+}
+
 const char *metro_lang_str(enum metro_lang_id id)
 {
     const char *s;

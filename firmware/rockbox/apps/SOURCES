@@ -330,6 +330,7 @@ metro/metro_artist_images.c
 metro/metro_artist_images_parse.c
 metro/metro_screen_nowplaying.c
 metro/metro_settings.c
+metro/metro_shared_settings.c
 metro/metro_sync.c
 metro/metro_sync_marker.c
 metro/metro_device.c
