@@ -57,6 +57,9 @@ enum metro_icon_id {
     METRO_ICON_NEXT,
     /* R5 (M-088): pantalla USB */
     METRO_ICON_SYNC,
+    /* M-104: candado de la barra de estado, cuando el interruptor Hold
+     * esta puesto. Fluent "lock closed" 16 filled. */
+    METRO_ICON_LOCK,
     METRO_ICON_COUNT
 };
 

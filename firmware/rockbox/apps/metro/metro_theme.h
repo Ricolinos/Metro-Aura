@@ -66,6 +66,23 @@ unsigned metro_color_secondary(void);
 unsigned metro_color_tertiary(void);
 unsigned metro_color_accent(void);
 
+/* M-105 (plan maestro SS F): el acento MEZCLADO hacia el fondo al 55 %.
+ *
+ * El problema que resuelve: el tile de respaldo (el que se dibuja
+ * cuando un album o un artista no tiene imagen) y el marco de seleccion
+ * usaban el MISMO acento puro, asi que sobre una cuadricula sin
+ * caratulas la seleccion desaparecia -- un cuadro de acento rodeado de
+ * acento. La regla comun a las tres familias es: **el acento puro es
+ * solo para el estado activo; los rellenos de respaldo usan una
+ * variante derivada**.
+ *
+ * Derivada, no un color nuevo: se calcula con metro_fb_blend_color()
+ * desde el acento vigente y el fondo del tema vigente, asi que sigue
+ * habiendo CERO literales RGB fuera de metro_palette.h (regla del
+ * CLAUDE.md) y funciona igual en tema claro y oscuro sin una segunda
+ * tabla. */
+unsigned metro_color_accent_dim(void);
+
 /* Any of the 10 accents by index, regardless of which one is active
  * -- e.g. for a settings screen listing all of them, or (F2) the type
  * specimen's accent strip. Returns METRO_ACCENT_COLOR_MAGENTA for an

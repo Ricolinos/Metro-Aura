@@ -3387,3 +3387,62 @@ Fila nueva en el pivot **"acerca de"** que abre `metro_screen_text.c/.h`, una pa
 - `firmware/tools/stack_report.py`: sigue en **OK** tras las pantallas nuevas.
 - **Persistencia verificada de verdad, con reinicio**: se enciende el clicker y se pone el apagado automático en 60 min; `config.cfg` queda con `keyclick: moderate`, `hardware keyclick: on`, `idle poweroff: 60`; se vuelve a arrancar **sin tocar nada** y las dos filas siguen mostrando "activado" y "60 min" (`docs/screenshots/ronda-homologacion/f2-persistencia.png`). Es la prueba directa de que `metro_apply_hygiene()` ya no las pisa.
 - Capturas: `f2-general-1.png`, `f2-general-2.png`, `f2-general-3.png` (las filas nuevas y "bloqueo" renombrada), `f2-brillo.png` (barra al 60 %, rótulo y barra coincidiendo), `f2-retro.png` (misma pantalla, valor "10s"), `f2-acerca-de.png` (fila "avisos legales" al final), `f2-legal.png` y `f2-legal-2.png` (texto ajustado y desplazado), `f2-persistencia.png`.
+
+## M-104 — El bloqueo deja de ser "solo al arrancar": el interruptor Hold lo activa, y la barra lo dice
+
+**Ronda "homologación", Fase 3.** Plan maestro §D, idéntico en las tres familias.
+
+**Lo que había.** M-068 dejó un candado de interfaz de 4 dígitos que se cobraba **solo al arrancar**: una vez desbloqueado, el aparato quedaba abierto hasta el siguiente encendido. El interruptor **Hold** no se leía en ningún lado de `apps/metro/` (hallazgo 5 del plan maestro §0), así que el gesto natural —guardar el aparato con el Hold puesto— no bloqueaba nada, y la barra de estado nunca decía si el Hold estaba puesto.
+
+**Por qué era invisible: el Hold no genera eventos.** En el 6G no es un botón sino un registro que hay que leer (`pmu_holdswitch_locked()`). El bucle principal de Aura esperaba botones **sin límite de tiempo**, así que allá el ícono ni siquiera se refrescaba. **En Metro no hacía falta cambiar el bucle**: ya espera con `timeout` (HZ/10, o HZ/20 mientras el hub anima, R5-F5/M-085), muy por debajo del ≤ HZ/2 que pedía el plan. La desviación queda anotada: el §D.2 del maestro describe un problema que Metro no tenía.
+
+**Sondeo, en un solo sitio.** `metro_screen_lock_poll_hold()` corre una vez por vuelta del bucle, justo **después** de `metro_screen_lock_run_if_active()` — si el flanco acaba de dejar el estado en ACTIVE, la vuelta siguiente lo cobra por el camino de siempre, sin duplicar la pantalla de código dentro del sondeo. Devuelve `true` cuando hay que redibujar, porque el ícono de la barra depende de un estado que no se refresca solo.
+
+**Máquina de estados (plan maestro §D.2-D.4).**
+
+| Flanco | Con bloqueo configurado | Sin bloqueo |
+|---|---|---|
+| OFF→ON | **pantalla de bloqueo en reposo** hasta que se quite el Hold | solo redibuja (aparece el ícono) |
+| ON→OFF | según `screen_lock_require` | nada |
+
+`screen_lock_require` ∈ {`al bloquear` (default), `tras 1 minuto`, `tras 5 minutos`, `solo al encender`}. Se guarda en `aura.cfg` **dentro del mismo bloque condicional** que las otras dos claves del candado: sin candado no significa nada, y así la salida de emergencia documentada ("conecta por USB y borra estas líneas") sigue dejando un archivo que no las vuelve a hacer crecer solo.
+
+**La pantalla en reposo no es la de desbloquear.** Candado grande, reloj y batería; **sin casillas de código**. Mientras el Hold está puesto no hay nada que teclear, y mostrar cuatro casillas invitaría a intentarlo. Es lo que uno ve al sacar el aparato del bolsillo sin quitar el Hold, y por eso muestra exactamente lo que se saca a mirar: la hora y cuánta batería queda. Usa el mismo glifo antialiaseado de 40 px y la misma altura que la pantalla USB (M-089) — es el tamaño que el dueño ya aprobó para "un símbolo solo en una pantalla vacía", y usar otro haría que dos pantallas del mismo carácter se vieran distintas sin motivo.
+
+- **Sigue atendiendo `SYS_EVENT`**: USB y apagado tienen que funcionar con el Hold puesto, y la **salida de emergencia** del candado (borrar las claves del `aura.cfg` por USB) depende de que así sea. Al volver de una sesión USB se releen los ajustes, igual que hace el bucle de la pantalla de código.
+- **La retroiluminación sigue su temporizador normal**, a propósito: el aparato está guardado, no en uso.
+- **Redibuja una vez por segundo, y solo con la pantalla encendida.** El sondeo corre a HZ/10 porque el flanco tiene que notarse rápido, pero redibujar a 10 Hz una pantalla cuyo único contenido variable son los minutos del reloj sería gastar batería en no mostrar nada nuevo. `lcd_active()` es la misma puerta que el `CLAUDE.md` exige para cualquier animación.
+
+**Ícono de candado en la barra.** Fluent "lock closed" 16 filled, generado por `gen_icons.py` como los otros nueve (`METRO_ICON_LOCK`), más el glifo antialiaseado de 40 px para la pantalla en reposo (`metro_glyph_lock_large`, desde el SVG de **24 px**: a 40 px el trazo del de 16 se ve engordado — Fluent dibuja cada tamaño por separado). Se dibuja **a la izquierda del glifo de transporte**, en secundario y no en acento: es un estado que se consulta, no algo que reclame atención — el acento de esta barra está reservado para "pausa", que es lo único que uno busca con la mirada. Aparece en **toda** pantalla con barra porque todas pasan por `metro_draw_header()`.
+
+**Ajustes › bloqueo, sub-página.** Antes era UNA fila que hacía dos cosas según el estado. Con el Hold hay tres cosas más que decidir, y meterlas en una fila que cambia de significado sería adivinanza. Patrón de `switch_page` (M-093): **Activar** cuando no hay candado; con candado, **Cambiar código · Pedir código · Quitar bloqueo**. Sin candado configurado las otras tres **no se muestran** — una fila inerte es peor que una fila ausente cuando lo que falta es el paso previo.
+
+**Verificado en el simulador**, con un token `HOLD` nuevo en el inyector (`sim_tasks.c`, `MODIFICATIONS.md`) que conmuta la misma variable que la tecla `h`: sin él, nada de esto se podía verificar sin la ventana interactiva.
+- Ícono de candado en la barra del **hub** (`f3-barra-candado-hub.png`), de una **lista** (`f3-barra-candado-lista.png`), de **Ajustes** (`f3-barra-candado-ajustes.png`) y de **Ahora Suena** (`f3-barra-candado-np.png`, a la izquierda del glifo de reproducción, que se corrió solo).
+- Sub-página **sin** candado (`f3-ajustes-bloqueo-vacio.png`: solo "activar") y **con** candado (`f3-ajustes-bloqueo.png`: las tres filas, con "pedir código — al bloquear").
+- Ciclo completo: configurar código → **Hold puesto → pantalla en reposo** (`f3-reposo.png`) → **Hold quitado → pide el código** (`f3-tras-hold.png`).
+- **"Solo al encender"**: con `screen_lock_require: 3` (`f3-pedir-codigo.png`), poner y quitar el Hold devuelve al hub **sin pedir nada** (`f3-boot-no-pide.png`). Es la prueba de que la regla se respeta y no solo de que existe.
+- `aura.cfg` guarda y relee las tres claves; quitar el bloqueo las borra las tres.
+
+**Límite declarado**: los umbrales de **1 y 5 minutos** no se ejercitaron de punta a punta (exigirían mantener el simulador corriendo esos minutos con el Hold puesto); la aritmética es una comparación de `current_tick` contra `60L * HZ`/`300L * HZ` con `s_hold_since` fijado en el flanco de subida. Va a la lista de verificación en hardware.
+
+## M-105 — La selección se perdía sobre los tiles: el acento puro deja de ser también el relleno de respaldo
+
+**Ronda "homologación", Fase 3.** Plan maestro §F, misma regla en las tres familias.
+
+**El problema, en una frase.** El tile de respaldo (el que se dibuja cuando un álbum o un artista no tiene imagen) y el marco de selección usaban el **mismo** acento puro. En la cuadrícula de Artistas —donde casi ningún elemento tiene foto— eso era un cuadro de acento seleccionado dentro de cuadros de acento: **la selección desaparecía**.
+
+**Regla común a las tres familias:** el acento **puro** es solo para el estado activo; los **rellenos de respaldo** usan una variante derivada. Y el marco de selección lleva un anillo interior de 1 px del color de fondo, para separarse de cualquier imagen.
+
+- **`metro_color_accent_dim()`** (`metro_theme.c`): el acento vigente mezclado **55 % hacia el fondo vigente** con `metro_fb_blend_color()`. Derivada, no un color nuevo: sigue habiendo **cero literales RGB** fuera de `metro_palette.h` (regla del `CLAUDE.md`) y funciona igual en tema claro y oscuro sin una segunda tabla. El 55 % es lo que deja al marco de acento puro despegarse del relleno sin que el tile deje de leerse como "del color del tema"; el 45 % restante es lo que mantiene legible la inicial encima.
+- **Marco de selección**: acento 3 px + **anillo interior de 1 px** en `metro_color_bg()`. Sin él, una carátula clara contra un acento claro (o una oscura contra el acento en tema oscuro) dejaba el borde sin contraste justo donde tiene que verse.
+
+**Efecto colateral, deliberado y anotado:** `metro_widgets_draw_empty_state()` dibuja su cuadro con `metro_draw_tile()`, así que el cuadro grande de "no hay nada aquí" también pasa a acento atenuado. Es correcto por la misma regla —un estado vacío es el epítome de un relleno de respaldo, no de un estado activo— pero es un cambio visual que el plan no pidió explícitamente, así que queda dicho aquí.
+
+**Auditado en el simulador**, con y sin imagen:
+- **Artistas** (`f3-tiles-artistas.png`): la cuadrícula entera de respaldo en acento atenuado con el seleccionado en marco de acento vivo. Es la captura que muestra el problema resuelto.
+- **Álbumes** (`f3-tiles-albumes.png`: mezcla de carátulas reales y un respaldo; `f3-tiles-respaldo-sel.png`: la selección **sobre** el tile de respaldo).
+- **Fotos** (`f3-tiles-fotos.png`): selección sobre una imagen real; el anillo interior separa el marco de la foto.
+- Cuadrícula vacía: el cuadro de `metro_widgets_draw_empty_state()` en Quickplay sin historial.
+
+**Verificado.** Target **0 errores, 0 warnings**; simulador 0 errores; 11 suites host, 0 fallos; `stack_report.py` **OK** (4 848 B, 39,5 %).

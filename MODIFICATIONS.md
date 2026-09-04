@@ -98,6 +98,17 @@ carácter que los tokens `USB_INSERT` (M-039) y `POWEROFF` que este archivo
 ya traía: postear lo que el driver hubiera posteado. Herramienta de
 pruebas, solo compila en el simulador.
 
+**M-104 (2026-09-04):** token `HOLD` en `METRO_SIM_BUTTONS` — **conmuta**
+el interruptor Hold simulado, la misma variable que la tecla `h` de la
+ventana SDL (`firmware/target/hosted/sdl/button-sdl.c`,
+`hold_button_state`). El Hold del 6G **no es un botón**: no se puede
+postear, se lee por sondeo (`pmu_holdswitch_locked()` en el aparato, esa
+variable en el simulador), así que sin este token la máquina de estados
+del bloqueo por Hold y el ícono de candado de la barra solo se podían
+verificar a mano en la ventana interactiva. Mismo carácter que
+`USB_INSERT` (M-039) y `POWEROFF`: tocar directo lo que el driver
+tocaría. Solo compila en el simulador.
+
 ## `apps/metro/` — código nuevo, no una modificación
 
 Todo el árbol `firmware/rockbox/apps/metro/` es código **nuevo**,

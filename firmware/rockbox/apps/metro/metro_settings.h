@@ -52,6 +52,18 @@ enum metro_gfx_level {
 };
 #define METRO_GFX_DEFAULT METRO_GFX_FULL
 
+/* M-104: valores de screen_lock_require, en el orden en que se ofrecen
+ * en Ajustes > bloqueo > pedir codigo. El default es HOLD: es el que
+ * hace que el interruptor sirva de algo la primera vez que alguien lo
+ * usa, sin tener que descubrir un ajuste. */
+enum metro_lock_require {
+    METRO_LOCK_REQUIRE_HOLD = 0, /* al bloquear (quitar el Hold) */
+    METRO_LOCK_REQUIRE_1MIN,     /* tras 1 minuto con Hold puesto */
+    METRO_LOCK_REQUIRE_5MIN,     /* tras 5 minutos con Hold puesto */
+    METRO_LOCK_REQUIRE_BOOT,     /* solo al encender (lo de antes) */
+    METRO_LOCK_REQUIRE_COUNT
+};
+
 typedef struct {
     enum metro_theme_kind theme;
     enum metro_accent accent;
@@ -69,6 +81,14 @@ typedef struct {
      * datos -- ver metro_screen_lock.h. Cadena vacía = sin clave. */
     bool screen_lock;
     char screen_lock_pin[5];
+    /* M-104 (plan maestro SS D): CUANDO se vuelve a pedir el codigo.
+     * Hasta ahora solo habia una respuesta posible -- al arrancar --
+     * porque no habia nada mas que pudiera bloquear. Con el sondeo del
+     * interruptor Hold hay un segundo disparador, y no todos quieren lo
+     * mismo de el: hay quien pone Hold para que no se aprieten los
+     * botones en el bolsillo y quiere seguir donde estaba al quitarlo,
+     * y hay quien lo usa como "guardar el aparato". */
+    enum metro_lock_require screen_lock_require;
 } metro_settings_t;
 
 extern metro_settings_t metro_settings;

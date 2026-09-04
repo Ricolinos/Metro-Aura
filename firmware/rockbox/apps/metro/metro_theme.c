@@ -19,6 +19,7 @@
  ****************************************************************************/
 #include "metro_theme.h"
 #include "metro_palette.h"
+#include "metro_fb.h" /* M-105: metro_fb_blend_color() */
 
 static const unsigned accent_colors[METRO_ACCENT_COUNT] = {
     METRO_ACCENT_COLOR_BLUE,
@@ -89,6 +90,16 @@ unsigned metro_color_tertiary(void)
 unsigned metro_color_accent(void)
 {
     return accent_colors[current_accent];
+}
+
+unsigned metro_color_accent_dim(void)
+{
+    /* 55 % hacia el fondo: suficiente para que el marco de acento puro
+     * se despegue del relleno, y no tanto como para que el tile deje de
+     * leerse como "del color del tema". El 45 % restante es lo que
+     * mantiene legible la inicial en blanco/negro encima. */
+    return metro_fb_blend_color(metro_color_accent(), metro_color_bg(),
+                                 55 * 256 / 100);
 }
 
 unsigned metro_accent_color(enum metro_accent accent)

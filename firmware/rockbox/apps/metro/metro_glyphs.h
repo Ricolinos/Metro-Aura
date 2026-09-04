@@ -35,5 +35,7 @@ struct metro_glyph {
 };
 
 extern const struct metro_glyph metro_glyph_sync_large;
+/* M-104: pantalla de bloqueo en reposo (interruptor Hold puesto). */
+extern const struct metro_glyph metro_glyph_lock_large;
 
 #endif /* METRO_GLYPHS_H */

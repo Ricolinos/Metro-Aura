@@ -365,6 +365,18 @@ void metro_main(void)
          * alcanzable con el candado puesto. */
         metro_screen_lock_run_if_active();
 
+        /* M-104 (plan maestro SS D): el interruptor Hold NO genera
+         * eventos de boton en el 6G -- se lee por sondeo. Una lectura
+         * por vuelta, aqui, cubre las dos cosas que dependen de el: el
+         * icono de candado de la barra (que si no, aparecia recien la
+         * proxima vez que algo mas provocara un redibujo) y la maquina
+         * de estados del bloqueo. Va DESPUES de run_if_active() a
+         * proposito: si el flanco de subida acaba de dejar el estado en
+         * ACTIVE, la vuelta siguiente lo cobra por el camino de
+         * siempre, sin duplicar la pantalla de codigo aqui. */
+        if (metro_screen_lock_poll_hold())
+            redraw_current();
+
         at_root = metro_nav_is_root(metro_screen_nav());
         at_player = !at_root && metro_screen_nowplaying_is_current();
         /* R2-F3: mutually exclusive with at_player -- only one sentinel

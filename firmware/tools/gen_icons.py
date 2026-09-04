@@ -58,6 +58,13 @@ SIZE = 16
 #   (archivo svg sin extension, simbolo, tamano en px)
 GLYPHS = [
     ("sync_large", "SYNC", 40),
+    # M-104: candado grande para la pantalla de bloqueo EN REPOSO (la
+    # que se ve con el interruptor Hold puesto). Mismo motivo que el
+    # glifo de sync: es un simbolo SOLO en una pantalla vacia, y escalar
+    # la mascara monocroma de 16px daria bloques. Se parte del SVG de
+    # 24px (no del de 16) porque a 40px el trazo del de 16 se ve
+    # engordado -- Fluent dibuja cada tamano por separado.
+    ("lock_large", "LOCK", 40),
 ]
 
 # El orden define enum metro_icon_id en metro_icons.h -- si se agrega
@@ -87,6 +94,13 @@ ICONS = [
     ("previous",   "PREVIOUS"),
     ("next",       "NEXT"),
     ("sync",       "SYNC"),  # R5/M-088: pantalla USB
+    # M-104: candado de la barra de estado (Hold puesto). FILLED, no
+    # Regular: a 16px el contorno del arco del grillete se parte en
+    # pixeles sueltos al binarizar, igual que ya se documento arriba
+    # para shuffle/repeat_all/previous/next. El Filled de Fluent para
+    # el candado es una silueta solida con el ojo de la cerradura
+    # calado, que a este tamano se lee de inmediato.
+    ("lock",       "LOCK"),
 ]
 
 # Umbral sobre el canal ALFA, no sobre el color: los SVG de Fluent son

@@ -201,6 +201,18 @@ enum metro_lang_id {
     LANG_SETTING_REPLAYGAIN,    /* ajuste de volumen (replaygain) */
     LANG_VALUE_REPLAYGAIN_TRACK,
     LANG_VALUE_REPLAYGAIN_ALBUM,
+
+    /* M-104 (plan maestro SS D): bloqueo por codigo con el interruptor
+     * Hold. Textos fijados por el maestro para las tres familias. */
+    LANG_LOCK_ENABLE,        /* activar */
+    LANG_LOCK_CHANGE,        /* cambiar codigo */
+    LANG_LOCK_REQUIRE,       /* pedir codigo */
+    LANG_LOCK_REQUIRE_HOLD,  /* al bloquear */
+    LANG_LOCK_REQUIRE_1MIN,  /* tras 1 minuto */
+    LANG_LOCK_REQUIRE_5MIN,  /* tras 5 minutos */
+    LANG_LOCK_REQUIRE_BOOT,  /* solo al encender */
+    LANG_LOCK_REMOVE,        /* quitar bloqueo */
+    LANG_LOCK_RESTING,       /* "bloqueado" -- pantalla en reposo */
     LANG_LEGAL_BODY,            /* el texto completo, con saltos de linea */
 
     LANG_COUNT

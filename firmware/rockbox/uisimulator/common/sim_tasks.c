@@ -98,6 +98,16 @@ static long autodump_settle_ticks = 0;
  * F9-shutdown.png and any future verification of code that reacts to
  * SYS_POWEROFF. */
 #define METRO_INJECT_POWEROFF_CODE (-3L)
+/* Token "HOLD" (Metro M-104): CONMUTA el interruptor Hold simulado, el
+ * mismo estado que la tecla `h` de la ventana SDL
+ * (firmware/target/hosted/sdl/button-sdl.c: `hold_button_state`). El
+ * Hold del 6G no es un boton -- no se puede postear, se lee por sondeo
+ * (`pmu_holdswitch_locked()` en el aparato, esta variable en el
+ * simulador) -- asi que sin este token la maquina de estados del
+ * bloqueo por Hold y el icono de candado de la barra solo se podian
+ * verificar a mano en la ventana SDL. Mismo caracter que USB_INSERT
+ * (M-039) y POWEROFF: tocar directo lo que el driver tocaria. */
+#define METRO_INJECT_HOLD_CODE  (-4L)
 
 /* Metro (M-101): sufijo "+HOLD" en cualquier nombre de boton de
  * METRO_SIM_BUTTONS (p.ej. "SELECT+HOLD") -- una pulsacion SOSTENIDA.
@@ -134,6 +144,7 @@ static long aura_button_name_to_code(const char *name)
     if (!strcmp(name, "WAIT"))        return METRO_INJECT_WAIT_CODE;
     if (!strcmp(name, "USB_INSERT"))  return METRO_INJECT_USB_CODE;
     if (!strcmp(name, "POWEROFF"))    return METRO_INJECT_POWEROFF_CODE;
+    if (!strcmp(name, "HOLD"))        return METRO_INJECT_HOLD_CODE;
     return BUTTON_NONE;
 }
 
@@ -222,6 +233,22 @@ void sim_thread(void)
             else if (inject_codes[inject_pos] == METRO_INJECT_USB_CODE)
             {
                 sim_trigger_usb(true);
+                inject_pos++;
+                inject_next_tick = current_tick + METRO_INJECT_WAIT_TICKS;
+                if (inject_pos == inject_count && autodump_settle_ticks >= 0)
+                {
+                    autodump_pending = true;
+                    autodump_tick = current_tick + METRO_INJECT_WAIT_TICKS + autodump_settle_ticks;
+                }
+            }
+            else if (inject_codes[inject_pos] == METRO_INJECT_HOLD_CODE)
+            {
+                /* Metro (M-104): conmuta el mismo estado que la tecla
+                 * `h` de la ventana SDL. */
+#ifdef HAS_BUTTON_HOLD
+                extern bool hold_button_state;
+                hold_button_state = !hold_button_state;
+#endif
                 inject_pos++;
                 inject_next_tick = current_tick + METRO_INJECT_WAIT_TICKS;
                 if (inject_pos == inject_count && autodump_settle_ticks >= 0)

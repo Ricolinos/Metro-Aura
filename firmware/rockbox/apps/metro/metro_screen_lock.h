@@ -79,6 +79,31 @@ enum metro_lock_state metro_screen_lock_state(void);
  * que el candado alcance a todo el aparato y no solo a una pantalla. */
 void metro_screen_lock_run_if_active(void);
 
+/* M-104 (plan maestro SS D): sondeo del interruptor Hold, una vez por
+ * vuelta del bucle principal, JUSTO ANTES de
+ * metro_screen_lock_run_if_active().
+ *
+ * Por que sondeo y no un evento: en el 6G el Hold no genera eventos de
+ * boton -- `pmu_holdswitch_locked()` es un registro que hay que leer.
+ * El bucle de Metro ya espera con timeout (HZ/10, o HZ/20 mientras el
+ * hub anima), asi que el sondeo cuesta una lectura por vuelta y el
+ * flanco se nota en <= 100 ms; el plan pedia <= HZ/2.
+ *
+ * Que hace en cada flanco:
+ *   OFF->ON  con bloqueo configurado: muestra la pantalla de bloqueo EN
+ *            REPOSO (candado, reloj y bateria, sin entrada de codigo) y
+ *            no vuelve hasta que se quita el Hold. Sin bloqueo
+ *            configurado: nada, solo pide un redibujo para que aparezca
+ *            el icono de la barra.
+ *   ON->OFF  segun `screen_lock_require`: HOLD pide el codigo siempre;
+ *            1MIN/5MIN solo si el Hold estuvo puesto al menos ese
+ *            tiempo; BOOT nunca (el comportamiento anterior a M-104).
+ *
+ * Devuelve true si el llamador debe redibujar la pantalla actual -- el
+ * icono de candado de la barra depende de este estado y no se refresca
+ * solo. */
+bool metro_screen_lock_poll_hold(void);
+
 /* Fila de Ajustes: pide una clave nueva y su confirmación. true si
  * quedó configurada (estado ARMED), false si el usuario canceló con
  * MENU o si las dos capturas no coincidieron -- en ambos casos la

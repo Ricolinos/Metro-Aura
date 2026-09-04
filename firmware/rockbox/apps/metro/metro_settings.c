@@ -54,6 +54,7 @@ static const metro_settings_t defaults = {
     .first_boot_done = false,
     .screen_lock = false,
     .screen_lock_pin = "",
+    .screen_lock_require = METRO_LOCK_REQUIRE_HOLD, /* M-104 */
 };
 
 static int clamp_enum(int v, int count)
@@ -106,6 +107,9 @@ void metro_settings_load(void)
                 strlcpy(metro_settings.screen_lock_pin, value,
                          sizeof(metro_settings.screen_lock_pin));
             }
+            else if (!strcmp(name, "screen_lock_require"))
+                metro_settings.screen_lock_require =
+                    (enum metro_lock_require)clamp_enum(v, METRO_LOCK_REQUIRE_COUNT);
             /* firmware_family/sync_marker_supported: write-only, Aura
              * Studio reads these off the mounted disk -- never read back
              * here. rtc_sync_*: transient, only
@@ -151,6 +155,12 @@ void metro_settings_save(void)
     {
         fdprintf(fd, "screen_lock: 1\n");
         fdprintf(fd, "screen_lock_pin: %s\n", metro_settings.screen_lock_pin);
+        /* M-104: dentro del mismo bloque a proposito -- sin candado la
+         * clave no significa nada, y asi la salida de emergencia
+         * (borrar estas lineas por USB) sigue dejando un archivo que no
+         * las vuelve a hacer crecer solo. */
+        fdprintf(fd, "screen_lock_require: %d\n",
+                 (int)metro_settings.screen_lock_require);
     }
 
     close(fd);

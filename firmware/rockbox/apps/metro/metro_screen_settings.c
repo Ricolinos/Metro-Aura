@@ -313,6 +313,103 @@ static void toggle_keyclick(void)
     settings_save_now();
 }
 
+/* --- M-104: Ajustes > bloqueo (plan maestro SS D.6) --------------------
+ * Sub-pagina con el mismo patron que "cambiar sistema": una pagina
+ * local de una sola pivot, empujada con metro_screen_list_push().
+ *
+ * Antes esto era UNA fila que hacia dos cosas segun el estado (con
+ * candado: quitarlo; sin candado: configurarlo). Con el sondeo del Hold
+ * hay tres cosas mas que decidir -- cambiar el codigo, cuando se vuelve
+ * a pedir, y quitarlo -- y meterlas en una fila que cambia de
+ * significado seria adivinanza. */
+static const enum metro_lang_id lock_require_names[METRO_LOCK_REQUIRE_COUNT] = {
+    LANG_LOCK_REQUIRE_HOLD, LANG_LOCK_REQUIRE_1MIN,
+    LANG_LOCK_REQUIRE_5MIN, LANG_LOCK_REQUIRE_BOOT,
+};
+
+static bool lock_is_set(void)
+{
+    return metro_screen_lock_state() != METRO_LOCK_NONE;
+}
+
+static int lock_count(void *ctx)
+{
+    (void)ctx;
+    /* Sin bloqueo configurado solo se ofrece "activar": "cambiar
+     * codigo", "pedir codigo" y "quitar bloqueo" no significan nada
+     * todavia, y una fila inerte es peor que una fila ausente cuando lo
+     * que falta es el paso previo. */
+    return lock_is_set() ? 3 : 1;
+}
+
+static void lock_get_row(void *ctx, int index, struct metro_row *out)
+{
+    (void)ctx;
+    out->subtitle = NULL;
+    out->kind = METRO_ROW_ACTION;
+
+    if (!lock_is_set())
+    {
+        out->title = metro_lang_str(LANG_LOCK_ENABLE);
+        return;
+    }
+
+    switch (index)
+    {
+        case 0:
+            out->title = metro_lang_str(LANG_LOCK_CHANGE);
+            break;
+        case 1:
+            out->title = metro_lang_str(LANG_LOCK_REQUIRE);
+            out->subtitle = metro_lang_str(
+                lock_require_names[metro_settings.screen_lock_require]);
+            out->kind = METRO_ROW_SETTING;
+            break;
+        default:
+            out->title = metro_lang_str(LANG_LOCK_REMOVE);
+            break;
+    }
+}
+
+static void lock_on_select(void *ctx, int index)
+{
+    (void)ctx;
+
+    if (!lock_is_set())
+    {
+        metro_screen_lock_setup();
+        return;
+    }
+
+    switch (index)
+    {
+        case 0:
+            /* Sin pedir el codigo actual, mismo criterio que "quitar":
+             * para llegar aqui el aparato ya esta desbloqueado. */
+            metro_screen_lock_setup();
+            break;
+        case 1:
+            metro_settings.screen_lock_require =
+                (enum metro_lock_require)((metro_settings.screen_lock_require + 1)
+                                           % METRO_LOCK_REQUIRE_COUNT);
+            metro_settings_save();
+            break;
+        default:
+            if (metro_widgets_confirm(metro_lang_str(LANG_SETTING_LOCK),
+                                       metro_lang_str(LANG_DIALOG_LOCK_OFF_TITLE)))
+                metro_screen_lock_clear();
+            break;
+    }
+}
+
+static const struct metro_pivot lock_pivots[] = {
+    { .name = LANG_SETTING_LOCK, .count = lock_count,
+      .get_row = lock_get_row, .on_select = lock_on_select },
+};
+static const struct metro_page lock_page = {
+    LANG_SETTING_LOCK, lock_pivots, 1, NULL
+};
+
 /* --- "cambiar sistema" (M-093, contrato v10 con tres familias) --------
  * Una fila por familia hermana de metro_firmware_families.h. Sin arbol
  * dormido la fila lleva "no instalado" y no hace nada; con el, pide
@@ -433,12 +530,16 @@ static void general_get_row(void *ctx, int index, struct metro_row *out)
             /* R3-F7/DD-8 (M-068): estado real del candado, no la
              * preferencia guardada -- ARMED y ACTIVE se ven igual desde
              * aquí (para llegar a esta fila el aparato ya está
-             * desbloqueado), así que basta con "activado"/"desactivado". */
+             * desbloqueado), así que basta con "activado"/"desactivado".
+             * M-104: la fila pasa de ACTION a NAV -- ahora abre la
+             * sub-página con las cuatro opciones del plan maestro §D.6.
+             * El subtítulo se queda: es lo que hace que se sepa si hay
+             * bloqueo sin tener que entrar. */
             out->title = metro_lang_str(LANG_SETTING_LOCK);
             out->subtitle = metro_lang_str(
                 metro_screen_lock_state() == METRO_LOCK_NONE ? LANG_VALUE_OFF
                                                               : LANG_VALUE_ON);
-            out->kind = METRO_ROW_SETTING;
+            out->kind = METRO_ROW_NAV;
             break;
         case 10:
             out->title = metro_lang_str(LANG_SETTING_LIBRARY);
@@ -511,19 +612,7 @@ static void general_on_select(void *ctx, int index)
             break;
 
         case 9:
-            /* R3-F7/DD-8 (M-068): con candado -> confirmar y quitarlo;
-             * sin candado -> configurar uno nuevo (dos capturas). Quitar
-             * pide confirmación (destruye la clave guardada), poner no
-             * la necesita: la propia doble captura ya es la confirmación,
-             * y MENU cancela en cualquier momento. */
-            if (metro_screen_lock_state() != METRO_LOCK_NONE)
-            {
-                if (metro_widgets_confirm(metro_lang_str(LANG_HUB_SETTINGS),
-                                           metro_lang_str(LANG_DIALOG_LOCK_OFF_TITLE)))
-                    metro_screen_lock_clear();
-            }
-            else
-                metro_screen_lock_setup();
+            metro_screen_list_push(&lock_page); /* M-104 */
             break;
 
         case 10:

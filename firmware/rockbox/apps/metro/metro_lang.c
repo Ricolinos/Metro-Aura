@@ -178,6 +178,16 @@ static const char *const strings_es[LANG_COUNT] = {
     [LANG_SETTING_REPLAYGAIN]     = "ajuste de volumen",
     [LANG_VALUE_REPLAYGAIN_TRACK] = "por pista",
     [LANG_VALUE_REPLAYGAIN_ALBUM] = "por álbum",
+
+    [LANG_LOCK_ENABLE]       = "activar",
+    [LANG_LOCK_CHANGE]       = "cambiar código",
+    [LANG_LOCK_REQUIRE]      = "pedir código",
+    [LANG_LOCK_REQUIRE_HOLD] = "al bloquear",
+    [LANG_LOCK_REQUIRE_1MIN] = "tras 1 minuto",
+    [LANG_LOCK_REQUIRE_5MIN] = "tras 5 minutos",
+    [LANG_LOCK_REQUIRE_BOOT] = "solo al encender",
+    [LANG_LOCK_REMOVE]       = "quitar bloqueo",
+    [LANG_LOCK_RESTING]      = "bloqueado",
     [LANG_LEGAL_BODY] =
         "Metro-Aura es software libre, derivado de Rockbox "
         "(rockbox.org), y se distribuye bajo la Licencia Pública "
@@ -354,6 +364,16 @@ static const char *const strings_en[LANG_COUNT] = {
     [LANG_SETTING_REPLAYGAIN]     = "volume adjust",
     [LANG_VALUE_REPLAYGAIN_TRACK] = "per track",
     [LANG_VALUE_REPLAYGAIN_ALBUM] = "per album",
+
+    [LANG_LOCK_ENABLE]       = "turn on",
+    [LANG_LOCK_CHANGE]       = "change code",
+    [LANG_LOCK_REQUIRE]      = "ask for code",
+    [LANG_LOCK_REQUIRE_HOLD] = "when locking",
+    [LANG_LOCK_REQUIRE_1MIN] = "after 1 minute",
+    [LANG_LOCK_REQUIRE_5MIN] = "after 5 minutes",
+    [LANG_LOCK_REQUIRE_BOOT] = "only at power on",
+    [LANG_LOCK_REMOVE]       = "remove lock",
+    [LANG_LOCK_RESTING]      = "locked",
     [LANG_LEGAL_BODY] =
         "Metro-Aura is free software, derived from Rockbox "
         "(rockbox.org), and is distributed under the GNU General "

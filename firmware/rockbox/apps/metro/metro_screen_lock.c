@@ -20,8 +20,14 @@
 #include <string.h>
 #include <stdio.h>
 
+#include "string-extra.h" /* strlcpy: en el target no viene por <string.h> */
+
 #include "lcd.h"
 #include "misc.h"
+#include "button.h"  /* M-104: button_hold() */
+#include "backlight.h" /* M-104: lcd_active() */
+#include "kernel.h"  /* M-104: current_tick */
+#include "queue.h"   /* M-104: SYS_EVENT en el bucle de reposo */
 
 #include "metro_screen_lock.h"
 #include "metro_screen_usb.h"
@@ -32,6 +38,8 @@
 #include "metro_fonts.h"
 #include "metro_theme.h"
 #include "metro_lang.h"
+#include "metro_widgets.h" /* M-104: metro_widgets_draw_glyph() */
+#include "metro_glyphs.h"
 
 /* Geometría de las 4 casillas: ancho*4 + hueco*3 = 212, centrado en los
  * 320 px de ancho del panel. Alto/ancho elegidos para que un dígito en
@@ -48,6 +56,14 @@
 /* Punto que representa un dígito ya confirmado (los que siguen en
  * blanco no dibujan nada adentro). */
 #define LOCK_DOT_SIZE 10
+
+/* M-104: pantalla de bloqueo en reposo -- un candado grande centrado y
+ * el rotulo debajo. Mismo glifo antialiaseado de 40px y misma altura
+ * que la pantalla USB (M-089): es el tamano que el dueno ya aprobo para
+ * "un simbolo solo en una pantalla vacia", y usar otro haria que dos
+ * pantallas del mismo caracter se vieran distintas sin motivo. */
+#define LOCK_RESTING_GLYPH_Y  86
+#define LOCK_RESTING_LABEL_Y  148
 
 /* Modo de la pantalla: la misma entrada de 4 dígitos sirve a los tres
  * flujos, solo cambian el rótulo y qué se hace al completar. */
@@ -348,6 +364,153 @@ bool metro_screen_lock_setup(void)
      * un solo booleano, configurar la clave o no servía de nada o
      * bloqueaba de inmediato.) */
     s_state = METRO_LOCK_ARMED;
+    return true;
+}
+
+/* --- M-104: sondeo del interruptor Hold ------------------------------ */
+
+static bool s_hold_prev = false;
+static long s_hold_since = 0;
+
+/* Pantalla de bloqueo EN REPOSO: candado grande, reloj y bateria, sin
+ * entrada de codigo. No es la de desbloquear -- mientras el Hold esta
+ * puesto no hay nada que teclear, y mostrar cuatro casillas invitaria a
+ * intentarlo. Es lo que el dueno ve al sacar el aparato del bolsillo:
+ * la hora y cuanta bateria queda, que es exactamente para lo que uno lo
+ * saca sin quitar el Hold. */
+static void draw_resting(void)
+{
+    int w, h;
+    const char *label = metro_lang_str(LANG_LOCK_RESTING);
+
+    metro_draw_clear();
+    /* Ceja vacia, igual que la pantalla de codigo: el reloj y la
+     * bateria SI se dibujan (metro_draw_header() los pone siempre), y
+     * el icono de candado tambien -- button_hold() es cierto aqui por
+     * construccion. */
+    metro_draw_header("");
+
+    metro_widgets_draw_glyph(&metro_glyph_lock_large,
+                              (LCD_WIDTH - metro_glyph_lock_large.width) / 2,
+                              LOCK_RESTING_GLYPH_Y, metro_color_fg());
+
+    lcd_setfont(metro_font_id(MFONT_TITLE));
+    lcd_getstringsize((const unsigned char *)label, &w, &h);
+    metro_draw_text(MFONT_TITLE, (LCD_WIDTH - w) / 2, LOCK_RESTING_LABEL_Y,
+                     label, metro_color_secondary());
+    lcd_update();
+}
+
+/* Corre mientras el Hold siga puesto. La retroiluminacion sigue su
+ * temporizador normal a proposito (no se toca `backlight_*`): el
+ * aparato esta guardado, no en uso.
+ *
+ * Sigue atendiendo SYS_EVENT -- USB y apagado tienen que funcionar con
+ * el Hold puesto, y la salida de emergencia del candado (borrar las
+ * claves del aura.cfg por USB) depende de que asi sea. */
+static void run_resting(void)
+{
+    long last_draw;
+
+    draw_resting();
+    last_draw = current_tick;
+
+    while (button_hold())
+    {
+        int action = metro_input_next(MCTX_LOCK, HZ / 10, NULL);
+
+        if (action & SYS_EVENT)
+        {
+            if (action == SYS_USB_CONNECTED)
+            {
+                metro_screen_usb_show();
+                default_event_handler(action);
+                /* La sesion USB pudo haber quitado la clave del
+                 * aura.cfg (salida de emergencia): se relee, igual que
+                 * hace el bucle de la pantalla de codigo. */
+                metro_settings_load();
+                if (!metro_settings.screen_lock ||
+                    !pin_is_valid(metro_settings.screen_lock_pin))
+                    s_state = METRO_LOCK_NONE;
+            }
+            else
+                default_event_handler(action);
+            draw_resting();
+            last_draw = current_tick;
+            continue;
+        }
+
+        /* El sondeo del Hold corre a HZ/10 porque el flanco tiene que
+         * notarse rapido, pero REDIBUJAR a 10 Hz una pantalla cuyo unico
+         * contenido variable es el reloj (minutos) y la bateria seria
+         * gastar bateria en no mostrar nada nuevo. Una vez por segundo
+         * alcanza, y solo con la pantalla encendida: con la
+         * retroiluminacion apagada -- que es lo normal en un aparato
+         * guardado con el Hold puesto -- no se dibuja nada.
+         * (`lcd_active()`, la misma puerta que el CLAUDE.md exige para
+         * cualquier animacion.) */
+        if (lcd_active() && current_tick - last_draw >= HZ)
+        {
+            draw_resting();
+            last_draw = current_tick;
+        }
+    }
+}
+
+static void apply_require_on_release(void)
+{
+    long held;
+
+    if (s_state != METRO_LOCK_ARMED)
+        return; /* sin clave, o ya bloqueado */
+
+    held = current_tick - s_hold_since;
+
+    switch (metro_settings.screen_lock_require)
+    {
+        case METRO_LOCK_REQUIRE_HOLD:
+            s_state = METRO_LOCK_ACTIVE;
+            break;
+        case METRO_LOCK_REQUIRE_1MIN:
+            if (held >= 60L * HZ)
+                s_state = METRO_LOCK_ACTIVE;
+            break;
+        case METRO_LOCK_REQUIRE_5MIN:
+            if (held >= 300L * HZ)
+                s_state = METRO_LOCK_ACTIVE;
+            break;
+        case METRO_LOCK_REQUIRE_BOOT:
+        default:
+            break; /* el Hold no bloquea nunca */
+    }
+}
+
+bool metro_screen_lock_poll_hold(void)
+{
+    bool hold = button_hold();
+
+    if (hold == s_hold_prev)
+        return false;
+
+    s_hold_prev = hold;
+
+    if (hold)
+    {
+        s_hold_since = current_tick;
+        if (s_state != METRO_LOCK_NONE)
+        {
+            run_resting();
+            /* run_resting() solo vuelve con el Hold ya quitado: el
+             * flanco de bajada se resuelve aqui mismo, para que no
+             * quede a merced de que la siguiente vuelta del bucle lo
+             * vea antes que cualquier otra cosa. */
+            s_hold_prev = false;
+            apply_require_on_release();
+        }
+        return true;
+    }
+
+    apply_require_on_release();
     return true;
 }
 

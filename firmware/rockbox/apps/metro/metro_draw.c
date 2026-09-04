@@ -23,6 +23,7 @@
 #include "viewport.h"
 #include "powermgmt.h"
 #include "timefuncs.h"
+#include "button.h" /* M-104: button_hold() */
 
 #include "metro_draw.h"
 #include "metro_widgets.h"
@@ -159,6 +160,7 @@ void metro_draw_header(const char *page_title)
      * por encima del texto. */
     int clock_x = LCD_WIDTH - 40;
     int status = audio_status();
+    int transport_x;
 
     metro_draw_text(MFONT_CAPTION, METRO_DRAW_LEFT_X, METRO_HEADER_TEXT_Y, page_title,
                      metro_color_secondary());
@@ -173,15 +175,39 @@ void metro_draw_header(const char *page_title)
                          metro_color_secondary());
     }
 
+    transport_x = clock_x - 6 - METRO_ICON_SIZE;
+
     /* R5-F4 (M-084): hay música (sonando o en pausa) -> glifo a la
      * izquierda del reloj, misma asimetría de color de M-073: play en
      * secundario (lo normal no grita), pausa en acento (es lo que uno
      * busca con la mirada cuando no se oye nada). Sin audio, nada. */
     if (status & AUDIO_STATUS_PAUSE)
-        metro_widgets_draw_icon(METRO_ICON_PAUSE, clock_x - 6 - METRO_ICON_SIZE,
+    {
+        metro_widgets_draw_icon(METRO_ICON_PAUSE, transport_x,
                                 METRO_HEADER_ICON_Y, metro_color_accent());
+        transport_x -= 6 + METRO_ICON_SIZE;
+    }
     else if (status & AUDIO_STATUS_PLAY)
-        metro_widgets_draw_icon(METRO_ICON_PLAY, clock_x - 6 - METRO_ICON_SIZE,
+    {
+        metro_widgets_draw_icon(METRO_ICON_PLAY, transport_x,
+                                METRO_HEADER_ICON_Y, metro_color_secondary());
+        transport_x -= 6 + METRO_ICON_SIZE;
+    }
+
+    /* M-104 (plan maestro SS D/SS H): candado a la IZQUIERDA del glifo de
+     * transporte mientras el interruptor Hold esta puesto. En
+     * secundario, no en acento: es un estado del aparato que se
+     * consulta, no algo que reclame atencion -- el acento en esta barra
+     * esta reservado para "pausa", que es lo unico que uno busca con la
+     * mirada.
+     *
+     * Se dibuja en TODA pantalla con barra porque todas pasan por aqui.
+     * El refresco es por sondeo (metro_screen_lock_poll_hold(), desde el
+     * bucle principal): el Hold del 6G no genera eventos de boton, se
+     * lee con pmu_holdswitch_locked(). Sin sondeo el icono aparecia
+     * solo la proxima vez que algo mas provocara un redibujo. */
+    if (button_hold())
+        metro_widgets_draw_icon(METRO_ICON_LOCK, transport_x,
                                 METRO_HEADER_ICON_Y, metro_color_secondary());
 
     metro_draw_battery(LCD_WIDTH - 4, METRO_HEADER_BATTERY_Y);
@@ -312,7 +338,11 @@ void metro_draw_tile(int x, int y, int size, const char *label)
     if (!initial[0])
         initial[0] = ' ';
 
-    lcd_set_foreground(metro_color_accent());
+    /* M-105 (plan maestro SS F): acento ATENUADO, no puro. El puro queda
+     * reservado para el marco de seleccion; con los dos iguales, una
+     * cuadricula sin caratulas era un cuadro de acento seleccionado
+     * dentro de cuadros de acento y la seleccion se perdia. */
+    lcd_set_foreground(metro_color_accent_dim());
     lcd_fillrect(x, y, size, size);
 
     /* A blank label (metro_widgets_draw_empty_state()'s plain accent
@@ -427,10 +457,20 @@ void metro_draw_tiles(const struct metro_pivot *pivot, int first, int sel,
 
         if (index == sel)
         {
+            /* M-105: marco de acento de 3 px MAS un anillo interior de
+             * 1 px del color de fondo. El anillo es lo que separa el
+             * marco de la imagen que hay debajo: sin el, una caratula
+             * clara contra un acento claro (o una oscura contra el
+             * acento en tema oscuro) dejaba el borde sin contraste
+             * justo donde tiene que verse. Mismo criterio en las tres
+             * familias. */
             int b;
+
             lcd_set_foreground(metro_color_accent());
             for (b = 0; b < 3; b++)
                 lcd_drawrect(x + b, y + b, METRO_TILE_SIZE - 2 * b, METRO_TILE_SIZE - 2 * b);
+            lcd_set_foreground(metro_color_bg());
+            lcd_drawrect(x + 3, y + 3, METRO_TILE_SIZE - 6, METRO_TILE_SIZE - 6);
         }
     }
 

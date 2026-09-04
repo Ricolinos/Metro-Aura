@@ -954,3 +954,34 @@ prácticas para quien escriba secuencias nuevas:
    corridas parecieron "no entra al video" cuando lo que pasaba era que
    `mpegplayer` ya había corrido completo y el `MENU` inyectado llegaba
    a la lista de Metro, no al plugin.
+
+
+## R7-7 — El bucle principal de Metro ya sondeaba: §D.2 del maestro describe un problema que Metro no tenía
+
+El plan maestro §D.2 pide que "el bucle principal deje de esperar botones
+sin límite" y use un timeout ≤ HZ/2 para poder sondear el interruptor
+Hold. Eso es cierto en Aura-Firmware; **en Metro no hacía falta tocar
+nada**: `metro_main()` ya llama `metro_input_next()` con `HZ/10` (o
+`HZ/20` mientras la fila "reproduciendo" del hub anima, R5-F5/M-085),
+que es cinco a diez veces más rápido que el techo que pedía el plan.
+
+Lo único que faltaba era **leer** `button_hold()` en alguna parte —
+`apps/metro/` no lo hacía en ningún sitio. La lectura se agregó en el
+punto que ya existía, sin cambiar la cadencia del bucle. Ver
+`DECISIONS.md` M-104.
+
+## R7-8 — El `HOLD` del simulador no se podía inyectar: no es un botón
+
+Al verificar M-104 quedó claro que el interruptor Hold no se puede
+postear como los demás: en el aparato es un registro
+(`pmu_holdswitch_locked()`) y en el simulador una variable global
+(`hold_button_state`, `firmware/target/hosted/sdl/button-sdl.c`) que solo
+conmutaba la tecla `h` de la ventana SDL. Sin un token nuevo, toda la
+máquina de estados del bloqueo por Hold y el ícono de candado de la barra
+habrían quedado "verificados a mano" — es decir, no verificados en el
+arnés headless que esta ronda usa para todo lo demás.
+
+Se agregó el token `HOLD` a `METRO_SIM_BUTTONS` (`sim_tasks.c`,
+registrado en `MODIFICATIONS.md`), que **conmuta** esa misma variable.
+Mismo carácter que `USB_INSERT` (M-039) y `POWEROFF`: tocar directo lo
+que el driver tocaría. Solo compila en el simulador.
