@@ -8,7 +8,7 @@ BUILD := build
 
 .PHONY: test clean
 
-test: $(BUILD)/test_nav $(BUILD)/test_sync_marker $(BUILD)/test_device $(BUILD)/test_motion $(BUILD)/test_lrc $(BUILD)/test_artist_images $(BUILD)/test_fsutil $(BUILD)/test_lang $(BUILD)/test_volume $(BUILD)/test_firmware_families $(BUILD)/test_master_art $(BUILD)/test_marquee $(BUILD)/test_shared_settings
+test: $(BUILD)/test_nav $(BUILD)/test_sync_marker $(BUILD)/test_device $(BUILD)/test_motion $(BUILD)/test_lrc $(BUILD)/test_artist_images $(BUILD)/test_fsutil $(BUILD)/test_lang $(BUILD)/test_volume $(BUILD)/test_firmware_families $(BUILD)/test_master_art $(BUILD)/test_marquee $(BUILD)/test_shared_settings $(BUILD)/test_textseg
 	@echo "== test_nav =="
 	@$(BUILD)/test_nav
 	@echo "== test_sync_marker =="
@@ -35,6 +35,8 @@ test: $(BUILD)/test_nav $(BUILD)/test_sync_marker $(BUILD)/test_device $(BUILD)/
 	@$(BUILD)/test_marquee
 	@echo "== test_shared_settings =="
 	@$(BUILD)/test_shared_settings
+	@echo "== test_textseg =="
+	@$(BUILD)/test_textseg
 
 $(BUILD)/test_marquee: test_marquee.c ../metro_marquee_cycle.c | $(BUILD)
 	$(CC) $(CFLAGS) test_marquee.c ../metro_marquee_cycle.c -o $@
@@ -80,3 +82,6 @@ $(BUILD)/test_master_art: test_master_art.c ../metro_master_art_format.c ../metr
 
 $(BUILD)/test_shared_settings: test_shared_settings.c ../metro_shared_settings.c ../metro_shared_settings.h ../metro_settings.h ../metro_theme.h ../metro_lang.h | $(BUILD)
 	$(CC) $(CFLAGS) test_shared_settings.c ../metro_shared_settings.c -o $@
+
+$(BUILD)/test_textseg: test_textseg.c ../metro_textseg.c ../metro_textseg.h | $(BUILD)
+	$(CC) $(CFLAGS) test_textseg.c ../metro_textseg.c -o $@

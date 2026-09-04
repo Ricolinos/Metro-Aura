@@ -418,6 +418,27 @@ Ver `DECISIONS.md` M-107.
 
 Ver `DECISIONS.md` M-101.
 
+### M-114 (2026-09-04): MAXUSERFONTS 12 -> 16 (cirílico por tramos)
+
+- `firmware/export/font.h` (M-114): `MAXUSERFONTS` pasa de `12` a `16`.
+  Comentario inline `Metro (M-114)` en el punto exacto. Cinco roles
+  primarios (Selawik) + cuatro fuentes cirílicas (Inter, M-113 --
+  `MFONT_DISPLAY` se queda sin la suya, cae a `MFONT_TITLE`) = 9
+  fuentes que `metro_fonts_init()` carga ahora. Medido, no supuesto:
+  con `MAXUSERFONTS` todavía en 12, las 9 cargaron las 9 sin un solo
+  "failed to load" (verificado con el DEBUGF real en el simulador,
+  ids 1-9, dos ranuras libres) -- a diferencia del hallazgo real que
+  moonlit.aura documentó para su propio D-081 (ahí sí agotaba el
+  presupuesto de 16 con sus 20 fuentes). Se sube de todos modos, a 16,
+  por el mismo motivo preventivo que moonlit usó (dejar margen para el
+  próximo rol o la próxima fuente aparte sin volver a tocar este
+  número), no para arreglar una falla que esta medición no encontró.
+  `.bss` del target (`firmware/build-ipod6g/rockbox.elf`, aislado --
+  mismo commit, solo esta constante): **7 352 988 -> 7 353 052 B
+  (+64 B)**, el costo esperado de 4 ranuras más en las tablas internas
+  de `MAXFONTS` de `firmware/font.c` (`buflib_allocations[MAXFONTS]`,
+  enteros de 4 B). Ver `DECISIONS.md` M-114.
+
 ### M-097 (2026-08-26)
 
 - `apps/SOURCES`: bloque de F1 extendido con `metro/metro_master_art_format.c`,

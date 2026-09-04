@@ -48,7 +48,21 @@ enum {
     FONT_SYSFIXED = -1, /* system fixed pitch font*/
     FONT_FIRSTUSERFONT = 0, /* first id for the user fonts */
 };
-#define MAXUSERFONTS 12
+/* Metro (M-114, contrato v19/ronda "ajustes 2" Fase 5): 12 -> 16. Cinco
+ * roles primarios (Selawik) + cuatro fuentes cirilicas (Inter, M-113 --
+ * MFONT_DISPLAY se queda sin la suya, ver metro_fonts.c) = 9 fuentes.
+ * Verificado en el simulador ANTES de subir este numero: con 12 los 9
+ * archivos cargaron los 9 sin un solo "failed to load" (ids 1-9, dos
+ * ranuras libres) -- a diferencia del hallazgo real de moonlit.aura
+ * para su propio D-081 (siete roles primarios + siete cirilicas SI
+ * agotaban su presupuesto de entonces), aqui 12 ya alcanzaba. Se sube
+ * de todos modos, a 16, por el mismo motivo preventivo que D-074/D-081
+ * usaron alla (dejar 4 ranuras libres para el proximo rol o la proxima
+ * fuente aparte sin tener que volver a tocar este numero) -- no para
+ * arreglar una falla que esta medicion no encontro. Ver DECISIONS.md
+ * M-114 y MODIFICATIONS.md -- unico archivo de Rockbox fuera de
+ * apps/metro/ que esta fase toca. */
+#define MAXUSERFONTS 16
 
 /* SYSFONT, FONT_UI, FONT_UI_REMOTE + MAXUSERFONTS fonts in skins */
 #define MAXFONTS (FONT_FIRSTUSERFONT + MAXUSERFONTS)

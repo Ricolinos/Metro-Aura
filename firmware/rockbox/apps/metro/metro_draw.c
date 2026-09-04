@@ -31,6 +31,7 @@
 #include "metro_theme.h"
 #include "metro_lang.h"
 #include "metro_marquee.h" /* M-106 */
+#include "metro_textseg.h" /* M-114: dibujo por tramos (cirilico, ver DECISIONS.md) */
 
 #define METRO_HEADER_HEIGHT 24
 
@@ -47,24 +48,84 @@ void metro_draw_clear(void)
  * Left set to FG afterward; nothing in apps/metro/ needs a SOLID
  * rectangle on purpose, so there is no restore step. See DECISIONS.md
  * M-051. */
-int metro_draw_text_width(enum metro_font_role role, const char *str)
-{
-    int w = 0, h;
+/* M-114 (porte de moonlit D-074/D-081, leido read-only -- ver
+ * DECISIONS.md): dibujo por tramos. Selawik no trae ni un glifo
+ * cirilico (M-111); las letras rusas de una cadena van con la fuente
+ * Inter del rol (M-113), asi que un mismo lcd_putsxy() no puede pintar
+ * los dos -- hay que partir la cadena en tramos, uno por tipo de
+ * fuente, y dibujarlos uno tras otro avanzando la x por el ancho
+ * medido de cada uno. Este es el UNICO sitio donde hace falta saber
+ * nada de esto (M-051: todo texto de apps/metro/ pasa por aqui) -- ni
+ * las pantallas ni metro_lang.c tienen que enterarse.
+ *
+ * Buffer estatico y compartido: metro_draw_* corre solo en el hilo de
+ * UI (el constructor de maestras nunca dibuja, M-097), y una llamada
+ * termina de usar el buffer antes de que empiece la siguiente --
+ * lcd_putsxy() no cede la CPU. */
+#define METRO_TEXTSEG_BUF 256
+#define METRO_TEXTSEG_MAX 12
+static char s_textseg_buf[METRO_TEXTSEG_BUF];
 
+static int build_segs(enum metro_font_role role, const char *str,
+                      struct metro_textseg *segs)
+{
     if (!str)
         return 0;
-    lcd_setfont(metro_font_id(role));
-    lcd_getstringsize((const unsigned char *)str, &w, &h);
-    return w;
+    return metro_textseg_build(str, metro_font_has_cyrillic(role),
+                               s_textseg_buf, sizeof(s_textseg_buf),
+                               segs, METRO_TEXTSEG_MAX);
+}
+
+static int seg_font_id(enum metro_font_role role,
+                       const struct metro_textseg *seg)
+{
+    if (seg->kind == METRO_TEXTSEG_CYRILLIC)
+        return metro_font_cyrillic_id(role);
+    return metro_font_id(role);
+}
+
+/* Ancho de `str` EN LA FORMA EN QUE SE DIBUJA -- suma de cada tramo en
+ * SU fuente (un tramo cirilico mide distinto en Inter que en Selawik).
+ * Medir la cadena original daria otro numero, y quien centra texto o
+ * decide si hace falta marquesina se equivocaria por esa diferencia. */
+int metro_draw_text_width(enum metro_font_role role, const char *str)
+{
+    struct metro_textseg segs[METRO_TEXTSEG_MAX];
+    int n = build_segs(role, str, segs);
+    int total = 0, i;
+
+    for (i = 0; i < n; i++)
+    {
+        int w, h;
+
+        lcd_setfont(seg_font_id(role, &segs[i]));
+        lcd_getstringsize((const unsigned char *)segs[i].text, &w, &h);
+        total += w;
+    }
+    return total;
 }
 
 void metro_draw_text(enum metro_font_role role, int x, int y,
                       const char *str, unsigned color)
 {
-    lcd_setfont(metro_font_id(role));
+    struct metro_textseg segs[METRO_TEXTSEG_MAX];
+    int n = build_segs(role, str, segs);
+    int cx = x, i;
+
     lcd_set_foreground(color);
     lcd_set_drawmode(DRMODE_FG);
-    lcd_putsxy(x, y, (const unsigned char *)str);
+    for (i = 0; i < n; i++)
+    {
+        int w, h;
+
+        lcd_setfont(seg_font_id(role, &segs[i]));
+        lcd_putsxy(cx, y, (const unsigned char *)segs[i].text);
+        if (i + 1 < n)
+        {
+            lcd_getstringsize((const unsigned char *)segs[i].text, &w, &h);
+            cx += w;
+        }
+    }
 }
 
 void metro_draw_text_cut_right(enum metro_font_role role, int x, int y,
@@ -78,8 +139,14 @@ void metro_draw_text_clipped(enum metro_font_role role, int clip_x, int clip_w,
 {
     struct viewport vp;
     struct viewport *old_vp;
+    struct metro_textseg segs[METRO_TEXTSEG_MAX];
+    int n, cx, i;
 
     if (clip_w <= 0)
+        return;
+
+    n = build_segs(role, str, segs);
+    if (n == 0)
         return;
 
     /* viewport_set_defaults() -- NOT viewport_set_fullscreen() directly.
@@ -114,7 +181,24 @@ void metro_draw_text_clipped(enum metro_font_role role, int clip_x, int clip_w,
     vp.drawmode = DRMODE_FG; /* M-051 -- see metro_draw_text() */
 
     old_vp = lcd_set_viewport(&vp);
-    lcd_putsxy(x - clip_x, y - vp.y, (const unsigned char *)str);
+    /* M-114: lcd_setfont() sobre ESTE viewport (ya activo) cambia
+     * vp.font por tramo -- lcd_putsxy()/lcd_getstringsize() leen
+     * lcd_current_viewport->font, no un estado global aparte
+     * (firmware/drivers/lcd-bitmap-common.c: setfont() solo hace
+     * LCDFN(current_viewport)->font = newfont). */
+    cx = x - clip_x;
+    for (i = 0; i < n; i++)
+    {
+        int w, h;
+
+        lcd_setfont(seg_font_id(role, &segs[i]));
+        lcd_putsxy(cx, y - vp.y, (const unsigned char *)segs[i].text);
+        if (i + 1 < n)
+        {
+            lcd_getstringsize((const unsigned char *)segs[i].text, &w, &h);
+            cx += w;
+        }
+    }
     lcd_set_viewport(old_vp);
 }
 

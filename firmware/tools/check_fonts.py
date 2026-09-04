@@ -141,30 +141,54 @@ def fmt_cp(cp):
     return f"U+{cp:04X} '{shown}'"
 
 
+# M-114 (Fase 5, plan maestro SS D.3): rango cirílico -- mismos límites
+# que metro_textseg.h (METRO_TEXTSEG_CYRILLIC_START/_LIMIT), copiado a
+# propósito (este script no enlaza C) en vez de compartido. Mismo rango
+# que moonlit_textseg.h (D-081), leído read-only como referencia.
+CYRILLIC_RANGE = range(1025, 1106)
+
+
+def _font_category(name):
+    """-> "cyrillic" | "primary", por el sufijo del archivo
+    (gen_fonts.sh: metro-<rol>-<px>[-cyrillic].fnt). Cada categoría
+    cubre un universo de codepoints DISTINTO a propósito (M-113/M-114)
+    -- pedirle a la fuente cirílica que cubra es/en/fr/de/it (o a la
+    primaria que cubra ruso) reportaría faltantes que nunca fueron su
+    trabajo. Sin categoría "punct": Metro no tiene fuente de
+    puntuación aparte (M-111 ya resolvió el único hueco real, el
+    carácter de puntos suspensivos, cambiando la cadena fuente por
+    "..." en vez de agregar una fuente)."""
+    if name.endswith("-cyrillic.fnt"):
+        return "cyrillic"
+    return "primary"
+
+
 def cmd_coverage(fonts_dir, lang_path, known_incomplete):
     import glob
     import os
 
-    # M-112 (preparación Fase 5): un *-cyrillic.fnt es un SUPLEMENTO
-    # parcial de un rol (solo U+0400-04FF, generado por gen_fonts.sh
-    # desde Inter) -- nunca va a cubrir es/en/fr/de/it por sí solo, y
-    # no es un defecto que lo haga. Se excluye de este chequeo hasta
-    # que exista el mecanismo de dibujo por tramos (moonlit_textseg.c
-    # portado) que sepa combinar "rol base + suplemento de script" --
-    # ahí es donde de verdad hay que decidir qué combinación cuenta
-    # como cobertura completa de un idioma, no aquí.
-    fonts = sorted(f for f in glob.glob(os.path.join(fonts_dir, "*.fnt"))
-                    if "-cyrillic" not in os.path.basename(f))
+    fonts = sorted(glob.glob(os.path.join(fonts_dir, "*.fnt")))
     if not fonts:
         die(f"no hay .fnt en {fonts_dir}")
 
     per_lang = lang_codepoints(lang_path)
+    # M-114: el rango cirílico es responsabilidad EXCLUSIVA de las
+    # fuentes -cyrillic.fnt -- las primarias (M-010/M-111) nunca lo
+    # cubrieron ni deberían, así que separarlo aquí es lo que evita que
+    # el ruso rompa el chequeo de las demás combinaciones fuente/idioma.
+    per_lang_cyrillic = {lang: {c for c in cps if c in CYRILLIC_RANGE}
+                          for lang, cps in per_lang.items()}
+    per_lang_other = {lang: cps - per_lang_cyrillic[lang]
+                       for lang, cps in per_lang.items()}
+    ui_cyrillic = set()
+    for cps in per_lang_cyrillic.values():
+        ui_cyrillic |= cps
     total_ui = set()
     for cps in per_lang.values():
         total_ui |= cps
 
-    print(f"== cobertura de glifos (M-111) ==  {len(per_lang)} idiomas, "
-          f"{len(total_ui)} codepoints distintos en total")
+    print(f"== cobertura de glifos (M-111/M-114) ==  {len(per_lang)} idiomas, "
+          f"{len(total_ui)} codepoints distintos en total (+{len(ui_cyrillic)} cirílicos)")
     if known_incomplete:
         print(f"   (tolerados como incompletos, ya conocido: {', '.join(sorted(known_incomplete))})")
     failures = 0
@@ -173,32 +197,52 @@ def cmd_coverage(fonts_dir, lang_path, known_incomplete):
     for path in fonts:
         h, covered = read_glyph_table(path)
         name = os.path.basename(path)
-        print(f"\n{name}: firstchar={h['firstchar']} size={h['size']} "
+        category = _font_category(name)
+        print(f"\n{name} [{category}]: firstchar={h['firstchar']} size={h['size']} "
               f"defaultchar={h['defaultchar']} glifos_reales={len(covered)}")
 
+        if category == "cyrillic":
+            # M-114: su única responsabilidad es el alfabeto ruso --
+            # nunca hay transliteración (no hay ASCII razonable para
+            # "я"), así que un faltante aquí es siempre real.
+            miss = sorted(c for c in ui_cyrillic if c not in covered)
+            if miss:
+                failures += 1
+                print(f"   FALTA cirílico de la UI ({len(miss)}): "
+                      + ", ".join(fmt_cp(c) for c in miss[:12])
+                      + (" ..." if len(miss) > 12 else ""))
+            else:
+                print(f"   cirílico: completo ({len(ui_cyrillic)}/{len(ui_cyrillic)})")
+            continue
+
         for lang in sorted(per_lang):
-            miss = sorted(c for c in per_lang[lang] if c not in covered and c >= 32)
+            # primary: contra per_lang_other -- el rango cirílico (M-114)
+            # es trabajo de la fuente -cyrillic.fnt del mismo rol, no de
+            # ésta (un rol sin fuente cirílica, hoy solo "display", cae
+            # al de "title" en el dibujo por tramos -- metro_draw.c, no
+            # a esta fuente primaria).
+            miss = sorted(c for c in per_lang_other[lang] if c not in covered and c >= 32)
             if miss and lang in known_incomplete:
                 warnings += 1
-                print(f"   AVISO (tolerado) {lang} ({len(miss)}/{len(per_lang[lang])}): "
+                print(f"   AVISO (tolerado) {lang} ({len(miss)}/{len(per_lang_other[lang])}): "
                       + ", ".join(fmt_cp(c) for c in miss[:12])
                       + (" ..." if len(miss) > 12 else ""))
             elif miss:
                 failures += 1
-                print(f"   FALTA {lang} ({len(miss)}/{len(per_lang[lang])}): "
+                print(f"   FALTA {lang} ({len(miss)}/{len(per_lang_other[lang])}): "
                       + ", ".join(fmt_cp(c) for c in miss[:12])
                       + (" ..." if len(miss) > 12 else ""))
             else:
                 print(f"   {lang}: completo")
 
     if failures:
-        die(f"{failures} combinacion(es) fuente/idioma sin cobertura -- "
+        die(f"{failures} combinacion(es) fuente/idioma o fuente/cirílico sin cobertura -- "
             "ver arriba que codepoints faltan")
     if warnings:
         print(f"\ncheck_fonts: {warnings} combinacion(es) incompletas pero toleradas "
               "(--known-incomplete) -- no bloquean el paquete.")
     else:
-        print("\ncheck_fonts: los seis idiomas estan cubiertos en todos los roles.")
+        print("\ncheck_fonts: los seis idiomas (con cirílico incluido) estan cubiertos en todos los roles.")
 
 
 def main():

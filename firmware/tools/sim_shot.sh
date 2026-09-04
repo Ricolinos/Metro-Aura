@@ -42,7 +42,22 @@ else
   unset METRO_SIM_BUTTONS 2>/dev/null || true
 fi
 
-./rockboxui > /dev/null 2>&1 || true
+RUN_LOG="$(mktemp -t metro_sim_shot)"
+trap 'rm -f "$RUN_LOG"' EXIT
+./rockboxui > "$RUN_LOG" 2>&1 || true
+
+# M-114 (porte de moonlit D-081, leido read-only como referencia): una
+# fuente que no entra en MAXUSERFONTS (firmware/export/font.h) falla en
+# silencio para el usuario -- metro_fonts.c cae al id de fuente
+# primario en vez de estrellarse (metro_font_cyrillic_id()), asi que
+# una ranura agotada nunca se veia sin medir a mano. Cualquier captura
+# es tambien, gratis, un chequeo de que las 9 fuentes (5 primarias + 4
+# cirilicas, M-113/M-114) cargaron.
+if grep -q "failed to load" "$RUN_LOG"; then
+  echo "ERROR: una fuente no cargo (ver DEBUGF abajo) -- probable MAXUSERFONTS agotado (firmware/export/font.h)" >&2
+  grep "failed to load" "$RUN_LOG" >&2
+  exit 1
+fi
 
 DUMP_FILE="$(ls -t simdisk/dump*.bmp 2>/dev/null | head -1)"
 if [[ -z "$DUMP_FILE" ]]; then

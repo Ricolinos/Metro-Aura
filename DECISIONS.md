@@ -4012,3 +4012,57 @@ Target y simulador reconstruidos (incluida la vuelta atrás del probe temporal -
 **Archivos**: `firmware/assets/fonts-src/Inter-Regular.ttf`, `Inter-SemiBold.ttf`, `LICENSE-Inter.txt` (nuevos); `LICENSE.txt` → `LICENSE-Selawik.txt` (renombrado); `firmware/assets/fonts/metro-{title-28,list-20,listsel-20,caption-14}-cyrillic.fnt` × 4 (nuevos -- SIN `display`, ver arriba); `gen_fonts.sh` (bloque `CYRILLIC_ROLES`, rango angosto); `check_fonts.py` (exclusión de `*-cyrillic.fnt`); `package_dist.sh` (aviso de Inter en `THIRD-PARTY-NOTICES.txt`).
 
 **Explícitamente NO hecho, a propósito**: nada de `moonlit_textseg.c` portado, ningún código de `apps/metro/` referencia estas fuentes todavía (el probe de medición se escribió, se usó y se removió en la misma pasada), `MAXUSERFONTS` sin tocar, cobertura de `ru` en el gate de `package_dist.sh` sigue tolerada (`--known-incomplete ru`) porque el dibujo real sigue sin existir. Todo eso espera el aviso de que moonlit cerró su Fase 3.
+
+## M-114 — Cirílico de verdad: dibujo por tramos, ruso legible de punta a punta
+
+**Ronda "ajustes 2", Fase 5.** moonlit.aura cerró su propio D-074/D-081 (commit `6c78b49b`, leído read-only como referencia) -- esta fase porta `moonlit_textseg.c` como `metro_textseg.c`, recortado a lo que Metro necesita, y cierra el hueco que M-111/M-112/M-113 dejaron documentado: el ruso ya no se ve como `??????`.
+
+### `metro_textseg.c` -- porte recortado, no una copia
+
+Dos clases, no tres: `METRO_TEXTSEG_PRIMARY`/`METRO_TEXTSEG_CYRILLIC`, sin `PUNCT` -- Metro no tiene fuente de puntuación aparte (el único hueco real, los puntos suspensivos U+2026, ya se cerró en M-111 cambiando la cadena fuente a `"..."`). Tampoco se portó `moonlit_translit.c`: sin fuente de puntuación que justifique una tabla de reemplazos, un codepoint sin cobertura simplemente cae al `defaultchar` ('?') del rol primario, como siempre en Metro. La firma se simplifica a juego: `metro_textseg_build(in, has_cyrillic_font, out_buf, out_buf_sz, segs, max_segs)`, un parámetro menos que la de moonlit.
+
+**La trampa que moonlit ya había documentado, evitada a propósito.** El atajo "sin fuente aparte, un solo tramo primario transliterado entero" NO puede mirar solo un flag si el rol tiene más de una fuente aparte posible -- D-081 de moonlit lo encontró tarde para `MFONT_DISPLAY` (con cirílico pero no puntuación). Metro no tiene ese riesgo textual (nunca hay dos flags que chequear, `has_cyrillic_font` es el único), pero el mismo tipo de trampa reaparece en `metro_fonts.c`: `metro_font_has_cyrillic(MFONT_DISPLAY)` devuelve **`true`** aunque ese rol no cargue su propio archivo `-cyrillic.fnt` -- porque el rol SÍ tiene una fuente cirílica utilizable (la de `MFONT_TITLE`, por el reencamine de M-113), y `metro_textseg_build()` necesita saber eso, no si existe un archivo con un nombre en particular. Devolver `false` ahí habría hecho que los nombres de pivote del hub en ruso ("настройки") se transliteraran a nada y mostraran `?` en vez de cirílico real -- exactamente el bug que D-081 encontró y corrigió del lado de moonlit, reencontrado aquí del lado de Metro antes de que llegara a ejecutarse, no después.
+
+Host test `test_textseg.c` (recorte del de moonlit, sin los casos de puntuación): 34 comprobaciones -- texto sin fuente cirílica (un tramo, byte a byte, trunca en frontera UTF-8), ruso puro, cirílico y latín alternando con fusión de tramos contiguos, cirílico al borde de la cadena, un codepoint fuera de rango cae a PRIMARY sin romper nada, degenerados y no-desborde en los dos caminos (con y sin fuente cirílica).
+
+### `metro_fonts.c`/`metro_draw.c` -- carga y dibujo
+
+`metro_fonts_init()` gana la carga de las 4 fuentes cirílicas (mismo patrón `load_one()` que ya usaba para las primarias, con `DEBUGF "failed to load"` real en cualquier fallo -- ver el mecanismo de `sim_shot.sh` abajo). `metro_font_cyrillic_id(MFONT_DISPLAY)` devuelve explícitamente `cyrillic_font_ids[MFONT_TITLE]`, la decisión documentada en M-113.
+
+`metro_draw.c` es el ÚNICO punto de dibujo de texto (M-051) -- `build_segs()`/`seg_font_id()` nuevos, y las tres funciones públicas (`metro_draw_text_width()`, `metro_draw_text()`, `metro_draw_text_clipped()`, de la que `metro_draw_text_cut_right()` ya delegaba) recorren tramos en vez de un `lcd_putsxy()` único, avanzando `x` por el ancho medido de cada tramo EN SU PROPIA fuente. `metro_draw_text_clipped()` reutiliza el viewport ya activo: `lcd_setfont()` sobre un viewport activo solo hace `LCDFN(current_viewport)->font = newfont` (`firmware/drivers/lcd-bitmap-common.c`), así que cambiar de fuente entre tramos no necesita reabrir el viewport. Ninguna pantalla ni `metro_lang.c` se enteran de nada de esto -- ni un `#include` nuevo fuera de `metro_draw.c`.
+
+### `MAXUSERFONTS` 12 → 16 -- medido, no un reflejo
+
+A diferencia del hallazgo real que motivó el mismo cambio en moonlit.aura (D-081: con 16 las 20 fuentes de moonlit SÍ agotaban el presupuesto), la primera versión de este párrafo afirmó sin medir que Metro tendría el mismo problema. **Falso, verificado después**: con `MAXUSERFONTS` todavía en 12 y el resto del código de esta fase ya escrito, las 9 fuentes (5 primarias + 4 cirílicas) cargaron las 9 sin un solo `"failed to load"` (`DEBUGF` real en el simulador, ids 1-9, dos ranuras libres sobre 12). Se sube a 16 de todos modos, por el mismo motivo preventivo que D-074/D-081 usaron del otro lado (dejar 4 ranuras libres para el próximo rol o la próxima fuente aparte sin volver a tocar este número) -- no para arreglar una falla que la medición no encontró. Único archivo de Rockbox fuera de `apps/metro/` que esta fase toca (`firmware/export/font.h`); entrada en `MODIFICATIONS.md`. `.bss` del target, aislado (mismo commit, solo esta constante): **7 352 988 → 7 353 052 B (+64 B)** -- 4 ranuras más × 4 B en `buflib_allocations[MAXFONTS]` (`firmware/font.c`), la única tabla de ese tamaño que Metro construye (no usa el motor de skins, M-101).
+
+### `sim_shot.sh` -- fallo visible, portado de moonlit D-081
+
+`./rockboxui` ya no descarta su salida a `/dev/null`: se captura a un archivo temporal y, si contiene la frase literal `"failed to load"`, el script sale con `exit 1` e imprime la línea del `DEBUGF` -- cualquier captura de aquí en adelante es también, gratis, una verificación de que las 9 fuentes cargaron. Verificado en las dos direcciones: una corrida normal no dispara nada; renombrar a mano un `.fnt` cirílico para simular una carga fallida sí lo dispara, con el mensaje exacto esperado.
+
+### `check_fonts.py --coverage` -- verde de verdad, sin tolerar nada
+
+Rediseñado con el mismo criterio que moonlit documentó para su propio D-081: `_font_category()` clasifica cada `.fnt` por su sufijo (`-cyrillic` o primaria) y cada categoría se mide contra SU universo -- una fuente `-cyrillic.fnt` solo responde por los codepoints cirílicos que la UI de verdad usa (extraídos de `metro_lang.c`, ya no artificialmente excluidos como en M-112/M-113); una primaria responde por cada idioma MENOS su rango cirílico, para que el ruso no le exija a Selawik algo que nunca fue su trabajo. Corrido: **es/en/fr/de/it/ru completos en las 5 primarias; cirílico completo (49/49) en las 4 fuentes `-cyrillic`**. `package_dist.sh` deja de pasar `--known-incomplete ru` -- el hueco que M-111 documentó y M-112 toleró está cerrado; si `ru` vuelve a faltar cobertura de aquí en más, es una regresión real y el gate debe volver a bloquear el paquete.
+
+### Verificado en vivo -- el hub en ruso, antes y después
+
+`docs/screenshots/ajustes-2/m114-hub-ru.png`: el mismo hub que en M-111 mostraba `??????`/`?????`/`????`/`??????????` ahora muestra **музыка / видео / фото / настройки**, cirílico real, con la fuente `title-28-cyrillic` (reencaminada desde `display` por la decisión de M-113).
+
+**Matriz de capturas**: 5 de las 6 pantallas del plan × 6 idiomas = 30 capturas (`docs/screenshots/ajustes-2/f6-{hub,settings,lock,about,list}-{es,en,fr,de,ru,it}.png`) -- hub, Ajustes›General (con el selector mostrando el nombre nativo y filas mezclando cirílico/latín como `20 min` sin problema), bloqueo, Acerca de (cirílico en `MFONT_LIST`/`MFONT_LIST_SEL`/`MFONT_CAPTION`, y el reencamine de `MFONT_DISPLAY`→`title` visible en "заблокировано"/"о системе"), y la cuadrícula de fotos (tiles + pivots cirílicos). **"Ahora Suena" (la 6ª pantalla) NO se capturó**: requiere una biblioteca escaneada y una pista realmente en reproducción, y el arnés de inyección headless llegó reiteradamente a un pivot "canciones" vacío (`f6-nowplaying-ru.png`, capturado como evidencia del intento, no del resultado) pese a que `/.aura/tagcache/` sí tenía una base construida -- no se investigó más a fondo por rendimiento decreciente frente a lo ya probado: "Ahora Suena" dibuja título/artista/álbum con las mismas `metro_draw_text()`/`metro_font_cyrillic_id()` ya verificadas correctas en los otros cinco tipos de pantalla, sin ningún camino de dibujo propio. Matriz completa (36/36) queda pendiente si el dueño la pide específicamente.
+
+`gen_test_media.sh`: los álbumes alemán (`Gruen`, Käthe Müller -- "Straße der Größe") y ruso (`Chaykovskiy`, Пётр Чайковский -- "Утро в Москве") de M-111 confirmados presentes en el simdisk y en la base de tagcache construida.
+
+### Verificado (build/tests)
+
+- Target: 0 errores, 0 warnings nuevos. Simulador: 0 errores. `stack_report.py`: **OK**, 4 864 B (39,6 %) -- sin cambio.
+- 14 suites de test de host (13 + `test_textseg` nueva), 0 fallos.
+- `check_fonts.py --coverage`: verde sin `--known-incomplete` (primera vez desde M-111).
+- `package_dist.sh` (sin `--release-tag`), dos corridas consecutivas sobre el mismo commit: **408 archivos** en el árbol empaquetado; `rockbox.ipod`/`bootloader-ipod6g.ipod`/`mks5lboot` idénticos byte a byte; las entradas del `.zip` (nombre + CRC32) idénticas sin una sola excepción entre las dos corridas. Reproducibilidad confirmada, mismo método que M-108/M-112.
+
+### Lista de verificación en hardware -- ajustes esta fase
+
+- [ ] **M-114 (cirílico)**: confirmar en el LCD real que el cirílico de Inter (`title-28-cyrillic`/`list-20-cyrillic`/`listsel-20-cyrillic`/`caption-14-cyrillic`) se ve nítido junto al Selawik primario en la misma fila (p.ej. "20 min" al lado de una etiqueta cirílica) -- el simulador ya confirmó que las dos fuentes conviven sin solaparse, pero el contraste de dos tipografías distintas en el panel físico es otra cosa.
+- [ ] **M-114 (Ahora Suena en ruso)**: pendiente de capturar en cualquier entorno -- confirmar en hardware real (con una biblioteca real sincronizada) que título/artista/álbum en cirílico se ven bien en Ahora Suena, ya que el simulador no lo logró en este intento.
+
+**Archivos**: `metro_textseg.c/.h`, `test/test_textseg.c` (nuevos); `metro_fonts.c/.h` (carga + accesores cirílicos), `metro_draw.c` (dibujo por tramos, único punto de dibujo de texto), `apps/SOURCES` (nueva unidad de compilación), `test/Makefile` (nuevo test); `firmware/export/font.h` (`MAXUSERFONTS` 12→16, único Rockbox-core fuera de `apps/metro/`), `MODIFICATIONS.md` (entrada M-114); `check_fonts.py` (categorías primaria/cirílica), `package_dist.sh` (retira `--known-incomplete ru`, suma Inter a `THIRD-PARTY-NOTICES.txt`), `sim_shot.sh` (falla visible en carga de fuente).
+
+**Pendiente**: matriz completa 6×6 (falta "Ahora Suena" en las seis idiomas) si el dueño la pide; verificación en hardware de las dos filas de arriba. Sin tag, sin release -- tag sugerido sigue siendo `v0.7.1` (M-112), ahora con M-113/M-114 sumados a lo que recogería.

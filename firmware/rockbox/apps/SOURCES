@@ -319,6 +319,7 @@ metro/metro_nav.c
 metro/metro_keymap.c
 metro/metro_input.c
 metro/metro_lang.c
+metro/metro_textseg.c
 metro/metro_lrc.c
 metro/metro_widgets.c
 metro/metro_screen_list.c
