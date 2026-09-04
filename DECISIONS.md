@@ -3424,6 +3424,14 @@ Fila nueva en el pivot **"acerca de"** que abre `metro_screen_text.c/.h`, una pa
 - **"Solo al encender"**: con `screen_lock_require: 3` (`f3-pedir-codigo.png`), poner y quitar el Hold devuelve al hub **sin pedir nada** (`f3-boot-no-pide.png`). Es la prueba de que la regla se respeta y no solo de que existe.
 - `aura.cfg` guarda y relee las tres claves; quitar el bloqueo las borra las tres.
 
+**ADDENDUM 2 (Fase 5, encargo de la supervisora): el sondeo del Hold NO cuesta batería, y por eso no lleva puerta `lcd_active()`.**
+
+La regla que la supervisora propuso para las tres familias —con la pantalla dormida y el bloqueo **no** armado, no sondear— parte de suponer que leer el interruptor toca el hardware. **En este target no lo toca.** `button_hold()` (`firmware/target/arm/ipod/button-clickwheel.c:419`, rama `S5L8702`) devuelve `pmu_holdswitch_locked()`, que devuelve la **variable** `pmu_input_holdswitch` (`pmu-6g.c:211`); quien la actualiza es el manejador de interrupción del PMU, que ya corría antes de M-104 lo leyera alguien o no. Es una lectura de memoria, no una transacción I2C.
+
+Sumado a que el bucle de Metro **ya esperaba con timeout** desde antes (HZ/10, o HZ/20 con el hub animando — R5-F5/M-085; ver `docs/DESVIACIONES.md` R7-7), el costo neto que M-104 agrega al reposo es **una lectura de un `int` cada 100 ms**. Poner una puerta `lcd_active()` sería una condición más para ahorrar cero, y una condición de más es una cosa más que puede estar mal. No se pone; queda escrito aquí y en `metro_screen_lock.h` para que la próxima sesión que se lo pregunte no tenga que volver a rastrearlo.
+
+Como es un argumento de código y no una medición, la **lista de verificación en hardware** lleva igual el punto: comparar la autonomía en reposo con el bloqueo desactivado y activado.
+
 **ADDENDUM (Fase 4, a pedido de la supervisora): los umbrales de 1 y 5 minutos SÍ se ejercitaron.**
 
 Al cerrar la Fase 3 quedaron declarados como no verificados: comprobarlos de verdad exigiría dejar el simulador corriendo cinco minutos con el Hold puesto **por cada uno de los cuatro casos** (soltar antes y después, para cada umbral). La salida es escalar la **unidad** bajo `#ifdef SIMULATOR`: `METRO_LOCK_HOLD_UNIT` vale un minuto en el aparato y **dos segundos** en el simulador. Lo que se prueba es exactamente el mismo código —la comparación, el origen `s_hold_since` y el flanco que lo fija son idénticos, solo cambia la constante— y la aritmética de hardware queda intacta.
@@ -3526,6 +3534,12 @@ La versión es la del **bootloader**: es lo único que él conoce. El firmware s
 | Usado | 74,1 % | **89,1 %**, 14 048 B libres |
 
 Enlaza y queda **muy por debajo del tope de 150 KB** del plan. El crecimiento son casi enteros los 19 040 B del bitmap (140×68 RGB565). Es más apretado que Aura (84,2 %) por una razón concreta: su wordmark es una sola línea ("aura", recorte 141×45) y el de Metro son dos ("metro" sobre "aura", 140×68). **14 KB de margen es poco**: la siguiente cosa que quiera entrar al bootloader tiene que medirse antes, y si el margen se vuelve incómodo la salida obvia es recortar el subtexto "aura" del bitmap del bootloader y dejarlo solo en el del firmware.
+
+**ADDENDUM (encargo de la supervisora): fuera también la línea "Ver. \<rbversion\>".**
+
+`show_logo_boot()` escribía debajo del logo la versión del firmware, en `FONT_SYSFIXED`. Con la pantalla del bootloader delante, la transición quedaba como "desaparecen dos leyendas y aparece otra"; sin ella es lo que el plan maestro §B.2 describe: **la marca se queda quieta y la pantalla se limpia**. Un iPod no muestra un número de build al encender, y ninguna de las dos versiones se pierde — la del **firmware** vive en "acerca de" (M-101 la puso ahí, de subtítulo de la fila de versión) y la del **bootloader** en su propia pantalla. Mismo criterio que D-051 de Aura-Firmware y D-050 de moonlit.aura: las tres familias divergen de Rockbox base en el mismo punto.
+
+Efecto colateral: `version`/`ver_w` quedan sin lector bajo `IPOD_6G` y el build salía con `-Wunused-but-set-variable`. Se marcan como usadas con `(void)` en vez de mover el cálculo dentro de cada rama, para que **las demás ramas de ese archivo —que son de otros targets de Rockbox— sigan byte a byte como estaban**. La maqueta no cambia: dibuja la pantalla del bootloader, que nunca tuvo esa línea.
 
 **Verificado.**
 - `firmware/tools/build_target.sh --bootloader`: **0 errores**, enlaza, 114 984 B.

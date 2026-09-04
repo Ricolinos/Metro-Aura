@@ -84,10 +84,20 @@ void metro_screen_lock_run_if_active(void);
  * metro_screen_lock_run_if_active().
  *
  * Por que sondeo y no un evento: en el 6G el Hold no genera eventos de
- * boton -- `pmu_holdswitch_locked()` es un registro que hay que leer.
- * El bucle de Metro ya espera con timeout (HZ/10, o HZ/20 mientras el
- * hub anima), asi que el sondeo cuesta una lectura por vuelta y el
- * flanco se nota en <= 100 ms; el plan pedia <= HZ/2.
+ * boton. El bucle de Metro ya espera con timeout (HZ/10, o HZ/20
+ * mientras el hub anima), asi que el flanco se nota en <= 100 ms; el
+ * plan pedia <= HZ/2.
+ *
+ * Y por que el sondeo NO cuesta bateria, ni siquiera con la pantalla
+ * dormida: `button_hold()` en este target
+ * (firmware/target/arm/ipod/button-clickwheel.c:419) devuelve
+ * `pmu_holdswitch_locked()`, que a su vez devuelve una VARIABLE
+ * (`pmu_input_holdswitch`, pmu-6g.c:211) que actualiza el manejador de
+ * interrupcion del PMU. Es una lectura de memoria, no una transaccion
+ * I2C: el interruptor ya se estaba leyendo por interrupcion antes de
+ * M-104, lo hiciera alguien o no. Por eso aqui NO hay una puerta
+ * `lcd_active()` que evite sondear con la pantalla apagada -- seria una
+ * condicion mas para ahorrar cero.
  *
  * Que hace en cada flanco:
  *   OFF->ON  con bloqueo configurado: muestra la pantalla de bloqueo EN

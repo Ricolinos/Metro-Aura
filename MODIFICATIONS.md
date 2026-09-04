@@ -348,12 +348,20 @@ que `apps/main.c` ya llama (F1, M-019) entre `settings_load()` e
   `#if defined(BOOTLOADER)` + `#if defined(IPOD_6G)`, para no cambiar
   ningún otro target de Rockbox que comparta ese archivo.
 - `apps/main.c` (M-107): `show_logo_boot()` centra el wordmark también
-  en **Y** bajo `#elif defined(IPOD_6G)`. El eje X ya se centraba; el Y
+  en **Y** y deja de escribir la línea "Ver. \<rbversion\>", ambas cosas
+  bajo `#elif defined(IPOD_6G)`. El eje X ya se centraba; el Y
   estaba fijo en 10 px (valor original de Rockbox, pensado para
   pantallas más chicas y logos más angostos). No es estética: es lo que
   hace que el paso **bootloader → firmware no tenga salto**, porque la
   pantalla del bootloader centra el recorte del mismo wordmark en la
-  misma pantalla. El resto de los targets conservan su `y = 10`.
+  misma pantalla. Y sin la línea de versión, la transición es la que
+  describe el plan maestro §B.2: la marca se queda quieta y la pantalla
+  se limpia (la versión del firmware vive en "acerca de", M-101; la del
+  bootloader en su propia pantalla). Mismo criterio que D-051 de
+  Aura-Firmware y D-050 de moonlit.aura. `version`/`ver_w` quedan sin
+  lector bajo `IPOD_6G` y se marcan con `(void)` para no mover el
+  cálculo: **el resto de los targets conservan su `y = 10`, su línea de
+  versión y su código byte a byte**.
 
 Ver `DECISIONS.md` M-107.
 

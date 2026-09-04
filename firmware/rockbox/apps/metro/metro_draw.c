@@ -215,9 +215,9 @@ void metro_draw_header(const char *page_title)
      *
      * Se dibuja en TODA pantalla con barra porque todas pasan por aqui.
      * El refresco es por sondeo (metro_screen_lock_poll_hold(), desde el
-     * bucle principal): el Hold del 6G no genera eventos de boton, se
-     * lee con pmu_holdswitch_locked(). Sin sondeo el icono aparecia
-     * solo la proxima vez que algo mas provocara un redibujo. */
+     * bucle principal): el Hold del 6G no genera eventos de boton. Sin
+     * sondeo el icono aparecia solo la proxima vez que algo mas
+     * provocara un redibujo. */
     if (button_hold())
         metro_widgets_draw_icon(METRO_ICON_LOCK, transport_x,
                                 METRO_HEADER_ICON_Y, metro_color_secondary());

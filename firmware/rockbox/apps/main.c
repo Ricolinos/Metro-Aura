@@ -260,6 +260,16 @@ int show_logo_boot( void )
     int font_h, ver_w;
     snprintf(version, sizeof(version), "Ver. %s", rbversion);
     ver_w = font_getstringsize(version, NULL, &font_h, FONT_SYSFIXED);
+#if defined(IPOD_6G) && !defined(HAVE_REMOTE_LCD)
+    /* Metro (M-107): bajo IPOD_6G esta pantalla ya no escribe la version
+     * (ver el bloque de abajo), asi que estas dos quedan sin lector y el
+     * build sale con -Wunused-but-set-variable. Se marcan como usadas en
+     * vez de mover el calculo dentro de cada rama: asi las demas ramas
+     * de este archivo -- que son de otros targets de Rockbox -- siguen
+     * byte a byte como estaban. */
+    (void)version;
+    (void)ver_w;
+#endif
     lcd_clear_display();
     lcd_setfont(FONT_SYSFIXED);
 #if defined(SANSA_CLIP) || defined(SANSA_CLIPV2) || defined(SANSA_CLIPPLUS)
@@ -284,18 +294,21 @@ int show_logo_boot( void )
      * queda donde tambien la pone el splash de Metro
      * (metro_screen_splash.c, bloque centrado).
      *
+     * Y SIN la linea "Ver. <rbversion>" que Rockbox pone abajo: un iPod
+     * no muestra un numero de build al encender. Con ella, la transicion
+     * desde el bootloader era "desaparecen dos leyendas y aparece otra";
+     * sin ella es lo que el plan maestro SS B.2 describe -- la marca se
+     * queda quieta y la pantalla se limpia. La version del FIRMWARE vive
+     * en "acerca de" (M-101 la puso ahi, de subtitulo de la fila de
+     * version) y la del BOOTLOADER en su propia pantalla (M-107), que es
+     * donde cada una sirve de algo. Mismo criterio que D-051 de
+     * Aura-Firmware y D-050 de moonlit.aura: las tres familias divergen
+     * de Rockbox base en el mismo punto.
+     *
      * Guardado solo para IPOD_6G para no cambiar el comportamiento de
-     * ningun otro target de Rockbox que comparta este archivo. La linea
-     * "Ver. <rbversion>" de abajo se conserva a proposito: es la version
-     * del FIRMWARE, distinta de la del bootloader que acaba de
-     * desaparecer, y es informacion util en el unico momento del
-     * arranque en que se puede leer. */
+     * ningun otro target de Rockbox que comparta este archivo. */
     lcd_bmp(&bm_rockboxlogo, (LCD_WIDTH - BMPWIDTH_rockboxlogo) / 2,
                               (LCD_HEIGHT - BMPHEIGHT_rockboxlogo) / 2);
-    if (ver_w > LCD_WIDTH)
-        lcd_putsxy(0, LCD_HEIGHT-font_h, rbversion);
-    else
-        lcd_putsxy((LCD_WIDTH/2) - (ver_w/2), LCD_HEIGHT-font_h, version);
 #else
     lcd_bmp(&bm_rockboxlogo, (LCD_WIDTH - BMPWIDTH_rockboxlogo) / 2, 10);
     if (ver_w > LCD_WIDTH)
