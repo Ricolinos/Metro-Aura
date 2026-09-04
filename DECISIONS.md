@@ -3834,14 +3834,14 @@ Vector A.3 completo, los tres casos, en `test/test_shared_settings.c` (43 compro
 En el simulador, de punta a punta y con un disco limpio (sin `config.cfg`/`.new`/`.old` previos — un `config.cfg` **preexistente** de una sesión anterior demostró ser una trampa real de metodología, no un bug: Rockbox escribe los ajustes cambiados a `config.cfg.new` y solo los renombra a `config.cfg` en el **siguiente** `settings_load()`, así que revisar `config.cfg` inmediatamente después de un arranque que acaba de cambiarlo siempre muestra el valor de ANTES; hay que mirar `config.cfg.new`, o dejar correr un segundo arranque):
 1. Arranque con el vector A.3 completo (`language: en` en vez de `fr`, que Metro aún no implementa) → `docs/screenshots/ajustes-2/m110-a3-aplicado.png` (hub en inglés — confirma la aplicación de `language` en vivo) y `m110-settings-aplicado.png` (fila por fila: apagado automático 20 min, límite de volumen "11", ajuste de volumen "per album", clicker "on" — coinciden con el vector, `volume_limit` correctamente redondeado a nivel).
 2. Alternar el clicker desde Ajustes reescribió `settings.cfg` con `rev: 8`, `updated_by: metro`, `keyclick: 0` y **`clave_futura: lo que sea` intacta** (`m110-toggle-keyclick.png`) — el round-trip de preservación de claves desconocidas funciona en el firmware real, no solo en el test puro.
-3. El candado activado por el archivo (`screen_lock_enabled: 1`) quedó guardado de inmediato en `aura.cfg`, pero — igual que la hora — solo se hizo cumplir a partir del **siguiente** arranque: `metro_screen_lock_run_if_active()` corre antes que `metro_disk_handoff()` dentro del mismo arranque (M-068 ya fijó ese orden por una razón propia, no se tocó). Documentado como comportamiento esperado, no un bug — el mismo retraso de un arranque que ya tenía la hora.
+3. El candado activado por el archivo (`screen_lock_enabled: 1`) quedó guardado de inmediato en `aura.cfg`, pero — igual que la hora — solo se hizo cumplir a partir del **siguiente** arranque: `metro_screen_lock_run_if_active()` corre antes que `metro_disk_handoff()` dentro del mismo arranque (M-068 ya fijó ese orden por una razón propia, no se tocó). Documentado como comportamiento esperado, no un bug — el mismo retraso de un arranque que ya tenía la hora. **Corregido en M-112** (hallazgo de moonlit D-079): este retraso de un arranque resultó tener un lado malo real — la salida de emergencia documentada (`screen_lock_enabled: 0` por USB) tampoco se cobraba de inmediato, así que un arranque en frío después de "desbloquearse por USB" seguía pidiendo el código. Ver M-112 para el reordenamiento (`metro_settings_shared_apply_pending()` corre ahora ANTES de `metro_screen_lock_run_if_active()`) — ambas direcciones (activar y desactivar por archivo) se cobran desde este mismo arranque.
 - Target: 0 errores, 0 warnings nuevos (los mismos `-Wmissing-field-initializers` preexistentes de `metro_screen_hub.c`). Simulador: 0 errores.
 - 13 suites de test de host (12 + `test_shared_settings` nueva), 0 fallos.
 - `firmware/tools/stack_report.py`: **OK**, 4 864 B (39,6 % de 12 288) — sin cambio frente a M-109.
 
 **Archivos**: nuevos `metro_shared_settings.c/.h`, `test/test_shared_settings.c`; modificados `metro_settings.c/.h` (I/O + aplicación + `shared_rev_applied`), `metro_screen_settings.c` (los nueve sitios de escritura + la corrección de `replaygain_steps[]`), `metro_screen_lock.c` (dos sitios), `metro_main.c` (un llamado en `metro_disk_handoff()`), `metro_lang.c/.h` (código de dos letras), `apps/SOURCES` (nueva unidad de compilación), `test/Makefile`. `docs/COMPAT_STUDIO.md` gana la fila C35.
 
-**Pendiente para la lista de verificación en hardware**: nada específico de esta fase — el mecanismo de aplicación/escritura ya se verificó de punta a punta en el simulador, y el candado/reloj comparten el mismo retraso de un arranque que M-068/M-095 ya llevaban a hardware sin sorpresas.
+**Pendiente para la lista de verificación en hardware**: nada específico de esta fase — el mecanismo de aplicación/escritura ya se verificó de punta a punta en el simulador. (El candado ya no comparte el retraso de un arranque que tenía al escribir este párrafo -- M-112, más abajo, lo corrigió el mismo día; el reloj, sin ese problema porque nunca tuvo una "salida de emergencia" simétrica, sigue con su propio retraso de un arranque, ya llevado a hardware sin sorpresas desde M-068/M-095.)
 
 ## M-111 — Idiomas: francés, alemán, ruso, italiano — y un hueco real de cobertura de glifos en ruso
 
@@ -3909,3 +3909,62 @@ Al verificar `language: ru` por primera vez, el hub mostraba español en vez de 
 **Archivos**: `metro_lang.c/.h` (seis tablas + cirílico en initial/upper/collate + selector), `metro_splash_lang.c` (seis columnas), `metro_screen_settings.c` (selector de 6, nombre nativo), `test/test_lang.c` (+34 comprobaciones netas: code/native_name/completeness/cirílico), `gen_fonts.sh` (bug de parseo hex corregido + LIMIT=1279), los 5 `.fnt` regenerados, `check_fonts.py` (nuevo, portado read-only de moonlit), `package_dist.sh` (gate nuevo), `gen_test_media.sh` (+2 álbumes).
 
 **Pendiente, explícito, no una lista de hardware sino una decisión del dueño**: el ruso necesita fuente con cirílico o una tabla de romanización antes de poder considerarse un idioma de verdad soportado -- ver las tres salidas arriba. La matriz completa de capturas de los seis idiomas queda para cuando esa decisión se tome (no tiene sentido documentar visualmente un idioma que hoy se ve como signos de interrogación).
+
+**Actualización (misma ronda, tras el reporte de PARADA 3): decisión tomada, salida (1).** El dueño confirmó (relevado por la sesión supervisora) que `Selawik-Regular.ttf` de este repo tiene 348 codepoints, 0 cirílicos y 0 griegos -- la premisa del plan maestro de que Selawik traía cirílico era falsa, no un defecto de esta implementación. Solución: **Inter** (SIL OFL, ya vendoreada en `../Aura-Firmware/design-system/vendor/inter-ttf/`, estilo humanista afín a Selawik) provee los glifos cirílicos como fuentes SEPARADAS por rol (rango 1024-1279, Regular para list/caption, Medium/SemiBold para listsel, Regular también para display/title ya que Inter no trae un peso Light), dibujadas por tramos con el mecanismo de moonlit.aura (D-074, `moonlit_textseg.c`) -- **portado, no reinventado**, en cuanto moonlit cierre su propia Fase 3 (que añade la clase `CYRILLIC` a ese mismo mecanismo y sube `MAXUSERFONTS`). Hasta entonces: la Fase 4 (cierre de esta ronda) corre con el gate de `check_fonts.py` en modo tolerante (`--known-incomplete ru`, ver `package_dist.sh`) y "Русский" se queda visible en el selector, marcado aquí como pendiente de una Fase 5 futura (portar `textseg` + fuentes Inter cirílicas para los 5 roles + `MAXUSERFONTS` + cobertura en verde para `ru` + la matriz 6×6 de capturas que quedó pendiente). Ningún `package_dist.sh` con `--release-tag` corre hasta que esa Fase 5 cierre.
+
+## M-112 — Cierre de "ajustes 2" (Fases 1-4): gate tolerante, reproducibilidad, lista de hardware
+
+**Ronda "ajustes 2", Fase 4.** Plan hijo Fase 4: `stack_report` verde, `package_dist.sh` sin tag, reproducibilidad, lista de verificación en hardware, COMPAT actualizado, tag sugerido. La Fase 5 (cirílico de verdad, ver la actualización de M-111 arriba) queda fuera de este cierre -- se abre cuando moonlit.aura termine su propio D-074/Fase 3 y haya algo que portar.
+
+### Addendum a M-110: la salida de emergencia por USB no se cobraba de inmediato
+
+Hallazgo relevado por la sesión supervisora (moonlit.aura lo encontró primero, D-079, mismo mecanismo compartido): `metro_screen_lock_run_if_active()` corría ANTES que `metro_disk_handoff()` (donde vive `metro_settings_shared_apply_pending()`) en el arranque en frío. M-110 ya documentó el lado "esperado" de esto -- activar el candado por archivo tarda un arranque -- pero no cayó en la cuenta del lado malo: la salida de emergencia YA documentada del contrato (conectar por USB y poner `screen_lock_enabled: 0` en `/.aura/settings.cfg`) **tampoco** se cobraba de inmediato. Alguien que acabara de "desbloquearse por USB" seguía viendo la pantalla de código en ESE MISMO arranque en frío -- exactamente el escenario que esa salida de emergencia existe para resolver.
+
+**Corrección**: `metro_settings_shared_apply_pending()` se llama ahora explícitamente en `metro_main()` justo después de `metro_lang_set(metro_settings.language)` y ANTES de `metro_screen_lock_init()`/`metro_screen_lock_run_if_active()` -- no necesita tagcache ni el splash, solo el disco montado, que ya lo está desde `metro_settings_load()` unas líneas antes. `metro_disk_handoff()` (más abajo en el arranque, y en el camino de retorno de USB) la sigue llamando también -- ahí no hace nada de más en el arranque, porque `rev` ya quedó aplicada; en el retorno de USB sigue siendo el único punto que la llama, sin cambios.
+
+**Efecto colateral, y es una mejora real, no solo un parche puntual**: con este reordenamiento, activar el candado por archivo TAMBIÉN se cobra desde el mismo arranque, no uno después -- ambas direcciones quedan simétricas. Corregido el texto de M-110 que documentaba el retraso viejo como "esperado".
+
+**Verificado con arranques nuevos del simulador** (no reusando estado de la misma sesión, como pidió la supervisora): candado armado localmente (`aura.cfg`: `screen_lock: 1`) + `settings.cfg` con `screen_lock_enabled: 0` y `rev` más nueva → arranque en frío entra directo al hub, sin pantalla de código (`docs/screenshots/ajustes-2/m112-emergency-unlock.png`); el caso simétrico, candado DESARMADO localmente + `settings.cfg` con `screen_lock_enabled: 1` → arranque en frío muestra la pantalla de código en el acto (`m112-same-boot-lock.png`). `aura.cfg` confirmado consistente después de cada arranque (`shared_rev_applied` avanza, `screen_lock`/`screen_lock_pin` aparecen o desaparecen según corresponda).
+
+### Gate de `check_fonts.py` en modo tolerante
+
+Por instrucción del dueño (relevada tras el reporte de PARADA 3): `package_dist.sh` pasa ahora `--known-incomplete ru` a `check_fonts.py --coverage` (M-111). Un idioma en esa lista se reporta como `AVISO (tolerado)` en vez de `FALTA` y no hace fallar el gate -- es explícitamente para un hueco YA CONOCIDO y con plan de cierre, nunca para silenciar uno nuevo (documentado en el propio `--help` de la bandera). Quitar `ru` de esa lista es justo la señal de que la Fase 5 cerró el hueco; si a partir de entonces `ru` vuelve a faltar cobertura, sí sería una regresión real que el gate debe volver a bloquear.
+
+### `package_dist.sh` sin tag: build limpio de punta a punta
+
+Corrido dos veces seguidas sobre el mismo commit (sin `--release-tag`, build de desarrollo): `stack_report.py` OK (4 864 B, 39,6 %), `check_fonts.py --coverage` con el aviso tolerado de `ru` documentado arriba, `make zip` completo, bootloader, checksums -- **404 archivos** en el árbol `.rockbox/` empaquetado (`docs/ESTADO_FINAL.md`/M-108 registraban 405+ en la ronda anterior; la diferencia es de contenido de assets entre rondas, no un error de empaquetado -- el conteo de "centinelas verificados" del propio script no marcó ninguna ausencia).
+
+### Reproducibilidad
+
+Dos corridas consecutivas de `package_dist.sh` sobre el mismo commit, comparadas byte a byte y entrada por entrada (mismo método que M-108):
+- `rockbox.ipod`, `bootloader-ipod6g.ipod`, `mks5lboot`: **idénticos byte a byte** (`cmp` sin diferencias).
+- `rockbox.zip`: el hash del archivo EXTERIOR difiere entre corridas (metadata de zip -- timestamps de entrada, no contenido; mismo comportamiento ya documentado en M-108), pero las **433 entradas** listadas por `unzip -v` (nombre + CRC32) son **idénticas entre las dos corridas sin una sola excepción** -- el `diff` de las dos listas ordenadas solo difiere en la línea de cabecera que nombra el archivo temporal de comparación, cero diferencias de contenido real. Reproducibilidad confirmada para este commit.
+
+### Lista de verificación en hardware — ajustes 2
+
+Ítems que el simulador no puede demostrar por sí solo, acumulados de M-109/M-110/M-111:
+
+- [ ] **M-109 (visor de fotos)**: girar la rueda del iPod real, sin soltar, durante ~20 fotos seguidas -- confirma que la aceleración real de la rueda (no el ciclo sintético del inyector) sigue disparando `BUTTON_REPEAT` limpio y que el debounce de 150 ms se siente natural, ni "pegado" ni saltando de más.
+- [ ] **M-110/M-112 (ajustes compartidos)**: con Aura Studio real escribiendo `/.aura/settings.cfg` (brillo/candado/etc. desde el Mac), confirmar que Metro los recoge desde el mismo arranque en frío en que Studio los dejó (M-112: candado y demás claves ya se aplican antes de la pantalla de código, no un arranque después), o en el retorno de USB, en un iPod real -- el simulador solo puede fabricar el archivo a mano, nunca ejercitar el flujo real Studio→disco→Metro de punta a punta. Poner especial atención a la salida de emergencia (`screen_lock_enabled: 0` por USB) -- es el caso que M-112 corrigió.
+- [ ] **M-111 (idiomas)**: confirmar en el LCD real (no la captura del simulador, que reproduce el framebuffer pero no el panel físico) que fr/de/it se ven nítidos a los tamaños de fuente más chicos (`caption-14`) -- el simulador ya verificó que no se cortan, pero el contraste/legibilidad real del panel del iPod 6G es harina de otro costal.
+- [ ] **M-111 (fuentes)**: las cinco `.fnt` bajaron de 432 KB a 336 KB (M-111) -- confirmar que el iPod real sigue arrancando y navegando con normalidad (RAM de fuentes cargadas, no solo tamaño en disco) tras el cambio de rango, aunque el simulador ya lo corrió sin fallas.
+
+### COMPAT_STUDIO.md
+
+Sin fila nueva esta fase: `/.aura/settings.cfg` (C35) ya se agregó en la Fase 2 (M-110); los idiomas de la Fase 3 son un asunto puramente local de Metro, sin ninguna ruta ni clave nueva del contrato con Aura Studio (`language` en `settings.cfg` ya viajaba desde M-110 con solo dos valores soportados -- ahora soporta cuatro más del lado de aplicación, mismo campo, mismo contrato).
+
+### Tag sugerido
+
+**`v0.7.1`**, cuando el dueño lo decida -- **sin release en esta ronda** (instrucción explícita del plan hijo y de la sesión supervisora). M-109 (visor de fotos), M-110 (ajustes compartidos v19) y M-111 (idiomas, con el hueco de ruso documentado y tolerado) son los tres cambios que ese tag recogería.
+
+### Resumen de la ronda "ajustes 2" (Fases 1-4)
+
+| Fase | Decisión | Estado |
+|---|---|---|
+| 1 -- Visor de fotos | M-109 | Cerrada, diff acotado a 4 archivos, portada por moonlit |
+| 2 -- Ajustes compartidos | M-110 | Cerrada, contrato v19 completo, verificado de punta a punta |
+| 3 -- Idiomas | M-111 | Cerrada con hueco conocido y tolerado (ruso, ver Fase 5 futura) |
+| 4 -- Cierre | M-112 | Este ítem -- gate tolerante, reproducibilidad confirmada, lista de hardware |
+| 5 -- Cirílico real (nueva, agregada tras PARADA 3) | pendiente | Espera a que moonlit.aura cierre su propio D-074/Fase 3 |
+
+Target y simulador en 0 errores/0 warnings nuevos durante toda la ronda; 13 suites de test de host, 0 fallos, en cada fase. Ningún archivo de Rockbox fuera de `apps/metro/` tocado (M-109/M-110 no lo necesitaron; M-111 solo tocó herramientas propias de este repo en `firmware/tools/`, no Rockbox). Sin tag, sin release.

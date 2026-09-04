@@ -333,6 +333,24 @@ void metro_main(void)
     metro_accent_set(metro_settings.accent);
     metro_lang_set(metro_settings.language);
 
+    /* M-112 (hallazgo de moonlit D-079, aplicado aquí): el candado se
+     * cobra un poco más abajo, ANTES del resto de metro_disk_handoff()
+     * -- así que si /.aura/settings.cfg trae screen_lock_enabled: 0
+     * (la salida de emergencia por USB documentada: conectar y editar
+     * el archivo compartido) hay que aplicarlo AQUÍ, antes de
+     * metro_screen_lock_run_if_active(), para que ese arranque en frío
+     * ya salga desbloqueado -- no uno después, que es como quedó
+     * documentado (y aceptado) para el CASO CONTRARIO en M-110 (activar
+     * el candado por archivo sí tarda un arranque, porque nada de
+     * seguridad se pierde por ese lado). Solo necesita el disco
+     * montado (ya lo está, metro_settings_load() arriba mismo ya leyó
+     * de él), no tagcache -- no hace falta esperar al splash.
+     * metro_disk_handoff() más abajo la vuelve a llamar (para el
+     * camino de retorno de USB, que sí la necesita ahí); en el
+     * arranque esa segunda llamada no hace nada porque `rev` ya quedó
+     * aplicada aquí. */
+    metro_settings_shared_apply_pending();
+
     metro_screen_splash_show();
     wait_for_tagcache_with_splash();
 

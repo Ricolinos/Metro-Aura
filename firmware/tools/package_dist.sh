@@ -135,10 +135,18 @@ echo "==> Reporte estático de pila (stack_report.py)"
 # lo único que lo hubiera atrapado. Corre antes de empaquetar, mismo
 # criterio que stack_report.py: un paquete que no pasa esto no se
 # publica.
+#
+# --known-incomplete ru: Selawik no trae NINGUN glifo cirilico (M-111)
+# -- hueco YA CONOCIDO y con plan de cierre (Fase 5 de esta ronda:
+# portar moonlit_textseg.c + fuentes Inter para cirilico), no algo que
+# este gate deba esconder para siempre. Quitar esta bandera es
+# justamente la señal de que la Fase 5 cerro el hueco -- si a partir de
+# entonces "ru" vuelve a faltar, sera una regresion de verdad.
 echo "==> Cobertura de glifos (check_fonts.py --coverage)"
 python3 "$ROOT_DIR/firmware/tools/check_fonts.py" --coverage \
   --fonts "$ROOT_DIR/firmware/assets/fonts" \
-  --lang "$ROOT_DIR/firmware/rockbox/apps/metro/metro_lang.c"
+  --lang "$ROOT_DIR/firmware/rockbox/apps/metro/metro_lang.c" \
+  --known-incomplete ru
 
 echo "==> Empaquetando el árbol .rockbox/ real (make zip: códecs, rocks, viewers.config, codepages, langs)"
 (cd "$BUILD_DIR" && PATH="$TC_BIN:$PATH" make zip ${VERSION:+VERSION="$VERSION"})

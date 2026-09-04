@@ -141,7 +141,7 @@ def fmt_cp(cp):
     return f"U+{cp:04X} '{shown}'"
 
 
-def cmd_coverage(fonts_dir, lang_path):
+def cmd_coverage(fonts_dir, lang_path, known_incomplete):
     import glob
     import os
 
@@ -156,7 +156,10 @@ def cmd_coverage(fonts_dir, lang_path):
 
     print(f"== cobertura de glifos (M-111) ==  {len(per_lang)} idiomas, "
           f"{len(total_ui)} codepoints distintos en total")
+    if known_incomplete:
+        print(f"   (tolerados como incompletos, ya conocido: {', '.join(sorted(known_incomplete))})")
     failures = 0
+    warnings = 0
 
     for path in fonts:
         h, covered = read_glyph_table(path)
@@ -166,7 +169,12 @@ def cmd_coverage(fonts_dir, lang_path):
 
         for lang in sorted(per_lang):
             miss = sorted(c for c in per_lang[lang] if c not in covered and c >= 32)
-            if miss:
+            if miss and lang in known_incomplete:
+                warnings += 1
+                print(f"   AVISO (tolerado) {lang} ({len(miss)}/{len(per_lang[lang])}): "
+                      + ", ".join(fmt_cp(c) for c in miss[:12])
+                      + (" ..." if len(miss) > 12 else ""))
+            elif miss:
                 failures += 1
                 print(f"   FALTA {lang} ({len(miss)}/{len(per_lang[lang])}): "
                       + ", ".join(fmt_cp(c) for c in miss[:12])
@@ -177,7 +185,11 @@ def cmd_coverage(fonts_dir, lang_path):
     if failures:
         die(f"{failures} combinacion(es) fuente/idioma sin cobertura -- "
             "ver arriba que codepoints faltan")
-    print("\ncheck_fonts: los seis idiomas estan cubiertos en todos los roles.")
+    if warnings:
+        print(f"\ncheck_fonts: {warnings} combinacion(es) incompletas pero toleradas "
+              "(--known-incomplete) -- no bloquean el paquete.")
+    else:
+        print("\ncheck_fonts: los seis idiomas estan cubiertos en todos los roles.")
 
 
 def main():
@@ -189,10 +201,17 @@ def main():
                          help="directorio de .fnt para --coverage")
     parser.add_argument("--lang", default="firmware/rockbox/apps/metro/metro_lang.c",
                          help="fuente de las cadenas de UI para --coverage")
+    parser.add_argument("--known-incomplete", default="",
+                         help="idiomas (codigo de dos letras, separados por coma) que se "
+                              "reportan pero no hacen fallar --coverage -- para un hueco "
+                              "YA CONOCIDO y en camino de resolverse, nunca para silenciar "
+                              "uno nuevo (M-111: ver DECISIONS.md, el ruso hasta la Fase 5 "
+                              "de la ronda 'ajustes 2')")
     args = parser.parse_args()
 
     if args.coverage:
-        cmd_coverage(args.fonts, args.lang)
+        known = {s.strip() for s in args.known_incomplete.split(",") if s.strip()}
+        cmd_coverage(args.fonts, args.lang, known)
     elif args.path:
         cmd_header(args.path)
     else:
