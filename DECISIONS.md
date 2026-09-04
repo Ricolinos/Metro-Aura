@@ -3575,6 +3575,10 @@ Nota de continuidad, no una decisión. La sesión se pausó por cuota del dueño
 
 ## Lista de verificación en hardware — ronda "homologación"
 
+**Verificado en hardware por el dueño el 2026-09-04 (v0.7.0):** arranque,
+bloqueo, ajustes, carátulas correctos; ajustes menores pendientes para la
+siguiente ronda.
+
 Todo lo de esta ronda (M-100 a M-108) está verificado en simulador y con
 tests de host; lo que sigue **solo se puede confirmar en el iPod real**
 — el simulador escribe sobre el sistema de archivos del host (SSD), no
