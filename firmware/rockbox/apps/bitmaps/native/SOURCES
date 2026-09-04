@@ -55,6 +55,15 @@ fiioicon.130x130x16.bmp
 rockboxicon.130x130x16.bmp
 toolsicon.130x130x16.bmp
 #endif
+/* Metro (M-107): recorte del wordmark para la pantalla de arranque del
+ * bootloader. Es la MISMA marca del rockboxlogo de arriba, recortada a
+ * su caja de tinta por firmware/tools/gen_logo.py --bootloader-crop,
+ * para no meter un lienzo de 320x98 en la IRAM del bootloader. Solo
+ * IPOD_6G: el resto de los targets de Rockbox que comparten este
+ * archivo no tienen esta pantalla. */
+#if defined(IPOD_6G)
+bootwordmark.140x68x16.bmp
+#endif
 #endif
 
 #ifndef BOOTLOADER  /* We don't need these for the bootloader */

@@ -269,6 +269,33 @@ int show_logo_boot( void )
     else
         lcd_putsxy((LCD_WIDTH/2) - (ver_w/2), 0, version);
     lcd_bmp(&bm_rockboxlogo, (LCD_WIDTH - BMPWIDTH_rockboxlogo) / 2, 16);
+#elif defined(IPOD_6G)
+    /* Metro (M-107): el wordmark se centra tambien en Y. El eje X ya se
+     * centraba; el Y estaba fijo en 10 px -- valor original de Rockbox,
+     * pensado para pantallas mas chicas y logos mas angostos -- que deja
+     * la marca pegada arriba.
+     *
+     * No es una preferencia estetica: es lo que hace que el paso
+     * BOOTLOADER -> FIRMWARE no tenga salto. La pantalla de arranque del
+     * bootloader centra su recorte del MISMO wordmark en la misma
+     * pantalla (firmware/tools/gen_logo.py --bootloader-crop comprueba
+     * que la tinta caiga en el pixel exacto), asi que con el lienzo a
+     * y=10 la marca daria un brinco de 61 px justo al arrancar. De paso
+     * queda donde tambien la pone el splash de Metro
+     * (metro_screen_splash.c, bloque centrado).
+     *
+     * Guardado solo para IPOD_6G para no cambiar el comportamiento de
+     * ningun otro target de Rockbox que comparta este archivo. La linea
+     * "Ver. <rbversion>" de abajo se conserva a proposito: es la version
+     * del FIRMWARE, distinta de la del bootloader que acaba de
+     * desaparecer, y es informacion util en el unico momento del
+     * arranque en que se puede leer. */
+    lcd_bmp(&bm_rockboxlogo, (LCD_WIDTH - BMPWIDTH_rockboxlogo) / 2,
+                              (LCD_HEIGHT - BMPHEIGHT_rockboxlogo) / 2);
+    if (ver_w > LCD_WIDTH)
+        lcd_putsxy(0, LCD_HEIGHT-font_h, rbversion);
+    else
+        lcd_putsxy((LCD_WIDTH/2) - (ver_w/2), LCD_HEIGHT-font_h, version);
 #else
     lcd_bmp(&bm_rockboxlogo, (LCD_WIDTH - BMPWIDTH_rockboxlogo) / 2, 10);
     if (ver_w > LCD_WIDTH)

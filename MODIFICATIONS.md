@@ -325,6 +325,38 @@ que `apps/main.c` ya llama (F1, M-019) entre `settings_load()` e
 `init_tagcache()` — la ventana exacta que necesita. No se tocó
 `apps/main.c` ni `apps/tagcache.c`. Ver `DECISIONS.md` M-095.
 
+### M-107 (2026-09-04): pantalla de arranque del bootloader
+
+- `bootloader/ipod-s5l87xx.c` (M-107): bloque `#ifdef IPOD_6G` nuevo con
+  `draw_boot_screen()` — wordmark centrado más dos leyendas en
+  `FONT_SYSFIXED` y gris `#999999` (`metro · arranque <rbversion>` y
+  `Basado en Rockbox · GPL v2 · rockbox.org`) —, llamado desde `main()`
+  justo después de `lcd_setfont(FONT_SYSFIXED)` y **antes** de
+  `backlight_init()`, para que la luz encienda con la marca ya dibujada.
+  Además, el encabezado del modo USB del bootloader pasa al mismo gris
+  (las líneas de acción siguen en blanco: son instrucciones de
+  recuperación). Comentarios inline `Metro (M-107)` en cada punto.
+  **El literal RGB es una excepción documentada**: el bootloader no
+  enlaza `apps/metro/`, que no existe en ese build, así que
+  `metro_palette.h` no está disponible.
+- `apps/bitmaps/native/bootwordmark.140x68x16.bmp` (M-107): asset nuevo,
+  generado por `firmware/tools/gen_logo.py --bootloader-crop` — el
+  recorte del MISMO wordmark que ya vive en
+  `rockboxlogo.320x98x16.bmp`, ajustado a su caja de tinta para no meter
+  un lienzo de 320×98 en la IRAM del bootloader.
+- `apps/bitmaps/native/SOURCES` (M-107): lo lista bajo
+  `#if defined(BOOTLOADER)` + `#if defined(IPOD_6G)`, para no cambiar
+  ningún otro target de Rockbox que comparta ese archivo.
+- `apps/main.c` (M-107): `show_logo_boot()` centra el wordmark también
+  en **Y** bajo `#elif defined(IPOD_6G)`. El eje X ya se centraba; el Y
+  estaba fijo en 10 px (valor original de Rockbox, pensado para
+  pantallas más chicas y logos más angostos). No es estética: es lo que
+  hace que el paso **bootloader → firmware no tenga salto**, porque la
+  pantalla del bootloader centra el recorte del mismo wordmark en la
+  misma pantalla. El resto de los targets conservan su `y = 10`.
+
+Ver `DECISIONS.md` M-107.
+
 ### M-101 (2026-09-04): pila del hilo principal 8 KB -> 12 KB
 
 - `firmware/target/arm/s5l8702/app.lds` (M-101): la sección `.stack`

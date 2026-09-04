@@ -81,6 +81,85 @@ extern uint32_t start_loc;
 
 extern int line;
 
+#ifdef IPOD_6G
+/* Metro (M-107): pantalla de arranque del bootloader.
+ *
+ * Hasta ahora el bootloader arrancaba en negro absoluto (`verbose` en
+ * false, heredado de D-064 de Aura-Firmware) y la marca solo aparecia
+ * cuando el firmware ya tenia el control (show_logo_boot(),
+ * apps/main.c). Eso deja ~1 s de pantalla vacia y, peor, no dice nada
+ * de la frontera GPL: el bootloader es la parte que se flashea en NOR y
+ * la unica que puede citar el origen del codigo antes de que exista
+ * sistema de archivos.
+ *
+ * El bitmap es el MISMO wordmark del rockboxlogo del firmware,
+ * recortado a su caja de tinta (firmware/tools/gen_logo.py
+ * --bootloader-crop) para no meter un lienzo de 320x98 en la IRAM del
+ * bootloader. Centrarlo en los dos ejes lo pone en el pixel EXACTO
+ * donde lo pinta show_logo_boot(): el generador COMPRUEBA esa igualdad
+ * antes de escribir el archivo, asi que si alguien cambia el lienzo o
+ * el centrado la falla sale ahi y no en el iPod. Por eso el paso
+ * bootloader -> firmware no tiene salto: solo desaparecen las leyendas
+ * de abajo y aparece la version del firmware. */
+#include "bitmaps/bootwordmark.h"
+
+/* Gris terciario de la familia. Literal RGB a proposito, excepcion
+ * documentada (el CLAUDE.md prohibe RGB fuera de metro_palette.h): el
+ * bootloader NO enlaza apps/metro/, que no existe en este build. Es el
+ * mismo #999999 que usa firmware/tools/gen_logo.py para el subtexto
+ * "aura" y para las leyendas de la maqueta de aprobacion. */
+#define METRO_BOOT_LEGEND_COLOR   LCD_RGBPACK(0x99, 0x99, 0x99)
+#define METRO_BOOT_LEGEND_BOTTOM  14   /* ultima linea, al borde inferior */
+#define METRO_BOOT_LEGEND_SPACING 12   /* interlineado entre las dos */
+
+static void draw_boot_legend(int y, const char *text)
+{
+    int w, h;
+
+    lcd_getstringsize((const unsigned char *)text, &w, &h);
+    lcd_putsxy((LCD_WIDTH - w) / 2, y, (const unsigned char *)text);
+}
+
+static void draw_boot_screen(void)
+{
+    char buf[64];
+    int line_h, dummy;
+
+    /* Limpia lo que hayan dejado los printf() de arriba (invisibles con
+     * `verbose` en false, pero presentes en el framebuffer) y deja
+     * line = 0. */
+    reset_screen();
+
+    lcd_bmp(&bm_bootwordmark,
+            (LCD_WIDTH - BMPWIDTH_bootwordmark) / 2,
+            (LCD_HEIGHT - BMPHEIGHT_bootwordmark) / 2);
+
+    lcd_getstringsize((const unsigned char *)"A", &dummy, &line_h);
+
+    /* "\xc2\xb7" es U+00B7 (el punto medio) en UTF-8, escrito con
+     * escapes para que este archivo -- de Rockbox, no de apps/metro/ --
+     * siga siendo ASCII puro. FONT_SYSFIXED lo tiene: su BDF
+     * (fonts/08-Schumacher-Clean.bdf) cubre ISO 10646-1 0..255. */
+    lcd_set_foreground(METRO_BOOT_LEGEND_COLOR);
+    /* La version es la del BOOTLOADER: es lo unico que el conoce. El
+     * firmware se actualiza aparte y muestra la suya, primero en la
+     * misma pantalla (show_logo_boot()) y despues en "Acerca de". */
+    snprintf(buf, sizeof(buf), "metro \xc2\xb7 arranque %s", rbversion);
+    draw_boot_legend(LCD_HEIGHT - METRO_BOOT_LEGEND_BOTTOM - line_h
+                                - METRO_BOOT_LEGEND_SPACING, buf);
+    draw_boot_legend(LCD_HEIGHT - METRO_BOOT_LEGEND_BOTTOM - line_h,
+                     "Basado en Rockbox \xc2\xb7 GPL v2 \xc2\xb7 rockbox.org");
+    lcd_set_foreground(LCD_WHITE);
+
+    /* Cualquier texto posterior del bootloader (modo USB) cae DEBAJO de
+     * la marca, no encima. error()/fatal_error() limpian la pantalla por
+     * su cuenta, asi que no les afecta. */
+    line = ((LCD_HEIGHT + BMPHEIGHT_bootwordmark) / 2 + line_h) / line_h;
+
+    lcd_update();
+}
+#endif /* IPOD_6G */
+
 #ifndef S5L87XX_DEVELOPMENT_BOOTLOADER
 #ifdef HAVE_BOOTLOADER_USB_MODE
 static void usb_mode(void)
@@ -125,7 +204,18 @@ static void usb_mode(void)
     if (button == SYS_USB_CONNECTED)
     {
         /* Got the message - wait for disconnect */
+        /* Metro (M-107): el ENCABEZADO del modo USB va en el gris de
+         * leyenda, como el resto de la pantalla de arranque; las lineas
+         * de accion ("Plug USB cable", "USB: Connecting...") se quedan
+         * en blanco a proposito -- son instrucciones de recuperacion y
+         * el blanco sobre negro es lo mas legible que hay. */
+#ifdef IPOD_6G
+        lcd_set_foreground(METRO_BOOT_LEGEND_COLOR);
+#endif
         printf("Bootloader USB mode");
+#ifdef IPOD_6G
+        lcd_set_foreground(LCD_WHITE);
+#endif
 
         /* Ack the SYS_USB_CONNECTED polled from the button queue */
         usb_acknowledge(SYS_USB_CONNECTED_ACK, button_get_data());
@@ -862,6 +952,14 @@ void main(void)
 
     printf("Rockbox boot loader");
     printf("Version: %s", rbversion);
+
+#ifdef IPOD_6G
+    /* Metro (M-107): la pantalla de arranque va aqui -- despues de
+     * lcd_setfont(FONT_SYSFIXED) (la necesita para medir las leyendas) y
+     * antes de backlight_init(), para que la luz encienda con la marca
+     * ya dibujada y no con un cuadro negro. */
+    draw_boot_screen();
+#endif
 
     backlight_init(); /* Turns on the backlight */
 

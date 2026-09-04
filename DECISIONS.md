@@ -3490,3 +3490,50 @@ moonlit.aura ya la había implementado (D-067, commit `f38f723b`, leído en solo
 - Cuadrícula vacía: el cuadro de `metro_widgets_draw_empty_state()` en Quickplay sin historial.
 
 **Verificado.** Target **0 errores, 0 warnings**; simulador 0 errores; 11 suites host, 0 fallos; `stack_report.py` **OK** (4 848 B, 39,5 %).
+
+## M-107 — Pantalla de arranque del bootloader: la marca aparece antes, y no salta al pasar al firmware
+
+**Ronda "homologación", Fase 5.** Plan maestro §B, diseñado una vez para las tres familias; cada una cambia solo su marca. Aura-Firmware lo implementó primero (D-347, commit `74469d73`, leído en solo lectura como manda el plan hijo).
+
+**Qué había.** El bootloader arrancaba **en negro absoluto** (`verbose` en false, heredado de D-064) y la marca solo aparecía cuando el firmware ya tenía el control. Eso deja ~1 s de pantalla vacía y, peor, no dice nada de la frontera GPL: el bootloader es la parte que se flashea en NOR y **la única que puede citar el origen del código antes de que exista sistema de archivos**.
+
+**La pantalla.** Lienzo 320×240 sobre negro (el mismo fondo del firmware, para que la transición no tenga cambio de color): wordmark centrado en los dos ejes, y dos leyendas en `FONT_SYSFIXED` —la única fuente que el bootloader tiene— centradas, en gris `#999999`, la última a 14 px del borde inferior con interlineado 12:
+
+```
+metro · arranque <rbversion del BOOTLOADER>
+Basado en Rockbox · GPL v2 · rockbox.org
+```
+
+La versión es la del **bootloader**: es lo único que él conoce. El firmware se actualiza aparte y muestra la suya, primero en `show_logo_boot()` y después en "Acerca de". Sin retardo artificial: la pantalla dura lo que tarde `load_firmware()`.
+
+**Por qué la marca NO salta, y por qué eso costó tocar `apps/main.c`.** El bitmap del bootloader es el **recorte** del mismo wordmark que ya vive en `rockboxlogo.320x98x16.bmp` — un lienzo de 320×98 no cabe cómodo en la IRAM del bootloader y además la mitad sería fondo negro. Que el recorte centrado caiga en el **píxel exacto** donde el firmware pinta el lienzo centrado no es automático:
+
+1. `show_logo_boot()` de Rockbox pega el logo a **`y = 10`**, no centrado — valor original pensado para pantallas más chicas y logos más angostos. Con eso, la marca daría un brinco de 61 px justo al arrancar. Se centra en Y bajo `#elif defined(IPOD_6G)` (`MODIFICATIONS.md`), como ya había hecho Aura por otro motivo (su D-210). El resto de los targets de Rockbox conservan su `y = 10`.
+2. Los dos centrados usan **división entera**, y la tinta del wordmark no está perfectamente centrada en el lienzo (94 px de aire a la izquierda contra 93 a la derecha). Un margen simétrico deja la marca **un píxel corrida**. La salida NO es pasarle un offset al C —una constante más que se puede desincronizar en silencio— sino **elegir los márgenes del recorte** para que el centrado entero dé exacto, y **comprobarlo**: `gen_logo.py --bootloader-crop` verifica la igualdad antes de escribir el archivo y aborta con un mensaje que dice qué cambió. Si alguien toca el lienzo o el centrado, la falla sale en el generador y no en el iPod.
+
+**Desviación respecto del generador de Aura**: el suyo solo ensancha el margen **lejano** en 0 o 1 px. En Metro eso no alcanza — el wordmark "metro / aura" es más ancho (133 px de tinta) y el margen lejano que haría falta caía por debajo de su propio mínimo de 4 px, así que el script de Aura habría abortado. El de Metro busca el **par** de márgenes y elige el más simétrico, con un mínimo de 2 px en vez de 4: la caja de tinta ya incluye todo píxel que no sea fondo, así que cualquier margen ≥ 1 basta para no cortar el antialiasing; 4 era comodidad, no requisito. Resultado: recorte **140×68**, márgenes 3/4 en X y 4/4 en Y, centrado en (90, 86), tinta en el mismo píxel que el firmware.
+
+**La maqueta de aprobación** (`docs/screenshots/ronda-homologacion/bootloader-maqueta.png`) la dibuja el mismo script, con los glifos **reales** de `FONT_SYSFIXED` leídos del BDF que compila Rockbox (`fonts/08-Schumacher-Clean.bdf`), no con una fuente parecida del host: existe para aprobar algo que después se flashea en NOR, y una aproximación no sirve para eso. El simulador **no** ejecuta el bootloader, así que la maqueta y el enlace son toda la verificación posible antes del hardware.
+
+**Modo USB y errores.** El **encabezado** del modo USB del bootloader pasa al mismo gris de leyenda; las líneas de acción ("Plug USB cable", "USB: Connecting…") se quedan en blanco a propósito — son instrucciones de recuperación y el blanco sobre negro es lo más legible que hay. `error()`/`fatal_error()` limpian la pantalla por su cuenta y no se tocan. El texto posterior del bootloader se coloca **debajo** de la marca (`line` se recalcula), nunca encima.
+
+**Presupuesto.**
+
+| | antes | después |
+|---|---|---|
+| `bootloader-ipod6g.ipod` | 95 592 B | **114 984 B** |
+| `MOVE_AREA` (`IRAM1_SIZE − IM3HDR_SZ` = 0x1F800) | 129 024 B | 129 024 B |
+| Usado | 74,1 % | **89,1 %**, 14 048 B libres |
+
+Enlaza y queda **muy por debajo del tope de 150 KB** del plan. El crecimiento son casi enteros los 19 040 B del bitmap (140×68 RGB565). Es más apretado que Aura (84,2 %) por una razón concreta: su wordmark es una sola línea ("aura", recorte 141×45) y el de Metro son dos ("metro" sobre "aura", 140×68). **14 KB de margen es poco**: la siguiente cosa que quiera entrar al bootloader tiene que medirse antes, y si el margen se vuelve incómodo la salida obvia es recortar el subtexto "aura" del bitmap del bootloader y dejarlo solo en el del firmware.
+
+**Verificado.**
+- `firmware/tools/build_target.sh --bootloader`: **0 errores**, enlaza, 114 984 B.
+- `firmware/tools/build_target.sh --firmware`: **0 errores, 0 warnings** tras el cambio a `show_logo_boot()`.
+- `gen_logo.py --bootloader-crop --check`: el lienzo y el recorte del árbol son **idénticos** a lo que el script regenera (el generador es idempotente y el `rockboxlogo` commiteado no cambió ni un byte con la extensión).
+- Simulador 0 errores; 12 suites host, 0 fallos; `stack_report.py` OK.
+- Maqueta: `docs/screenshots/ronda-homologacion/bootloader-maqueta.png`.
+
+**Lo que solo se puede ver en hardware** (va a la lista de §J): que la marca aparezca en el mismo sitio antes y después del handoff, que las leyendas se lean en el panel real, que no haya parpadeo, y el modo USB del bootloader con su encabezado gris.
+
+**Nota de método**: al medir el tamaño "antes" con `git stash`, la reconstrucción posterior **no recompiló** `ipod-s5l87xx.c` — `git stash pop` le dejó al archivo el mismo timestamp de segundo que su `.o`, y `make` lo dio por al día. El binario resultante parecía no haber cambiado. Se detectó porque el tamaño era exactamente el de antes; se resolvió con un `touch`. Es una propiedad de `make`, no de este cambio, pero refuerza lo que la Fase 6 ya tiene agendado: el paquete de release se construye desde un directorio limpio.
