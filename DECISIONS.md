@@ -4207,3 +4207,57 @@ Simulador reconstruido, 0 errores (los avisos de `-Wmissing-field-initializers`/
 **Archivos**: `metro_draw.c/.h` (primitiva nueva) más ocho archivos de pantalla. Ninguno de Rockbox fuera de `apps/metro/`.
 
 **Sin release**: se agrupa con lo que el dueño encuentre en hardware sobre v0.7.1. Tag sugerido para ese momento: `v0.7.2`.
+
+## M-118 — El tope de tramos de M-114 truncaba frases rusas en silencio
+
+Hallazgo relevado de moonlit.aura (commit `7b89e2c6`, leído sólo como referencia). Aplica aquí y **quedó dentro de v0.7.1**.
+
+### El error
+
+Un espacio ASCII es `PRIMARY` y **parte** la corrida cirílica, así que el ruso gasta ~2 tramos por palabra. Con `METRO_TEXTSEG_MAX = 12` (M-114), `metro_textseg_build()` cortaba y `metro_draw_text()` dibujaba **truncado, sin decir nada**, cualquier frase rusa de más de ~6 palabras. Los rótulos cortos (pivotes, filas, títulos) nunca llegaban al tope, que es exactamente por lo que ninguna captura de M-114, M-116 ni M-117 lo delató: lo que se rompía eran los textos largos, y de esos sólo el ruso.
+
+Caso concreto, el detalle del diálogo de biblioteca (`LANG_DIALOG_LIBRARY_DETAIL`, 26 tramos):
+
+```
+completo:  это может занять несколько минут, в зависимости от числа файлов и состояния диска.
+con 12:    это может занять несколько минут, в
+```
+
+Visible en `m118-dialog-ru-before.png`: la frase salta de `…несколько минут, в` a `состояния диска.` -- se perdió el centro entero.
+
+### Los números se midieron, no se heredaron
+
+moonlit usó 1024/128 para sus tablas. **Aquí no alcanzan.** Barriendo las seis tablas de `metro_lang.c` con el módulo puro (arnés desechable sobre `metro_textseg.c`, sin Rockbox), el peor caso real de este repo es:
+
+| idioma | peor nº de tramos | peor bytes de buffer |
+|---|---|---|
+| es / en / fr / de / it | 1 | ~680 |
+| **ru** | **113** | **1157** |
+
+El peor caso es el texto de licencia de "acerca de" en ruso. Los 1024 B de moonlit lo truncarían. De ahí **2048 / 160**, con holgura para que una cadena nueva no vuelva a rozar el tope.
+
+Los cinco idiomas latinos dan **1 tramo**: sin un solo codepoint cirílico, `metro_textseg_build()` toma su atajo de un tramo único. Es decir, este bug **sólo** podía manifestarse en ruso, y sólo en las cadenas largas.
+
+### Los tramos se van de la pila
+
+Con 160 entradas, un `struct metro_textseg segs[METRO_TEXTSEG_MAX]` local pasa del kilobyte por marco -- justo lo que `stack_report.py` (M-101) prohíbe en `apps/metro/`. Pasan a un arreglo estático compartido, `s_textsegs[]`, junto al buffer que ya lo era. Coste: `.bss` 7,353,052 → 7,356,156 B (**+3,104 B**). `stack_report` sigue en verde: peor camino 4864 B (39.6 % de 12288), ninguna función de `apps/metro/` sobre 1024 B.
+
+Compartirlos es seguro por lo mismo que el buffer, con **una** regla nueva y anotada en el código: quien construya tramos tiene que terminar de leerlos **antes** de llamar a otra función de dibujo, porque esa los reconstruye encima. `metro_draw_tile()` es el único sitio que hace las dos cosas, y respeta el orden a propósito (mide primero, dibuja después).
+
+### La fuente se restaura en la primitiva
+
+`metro_draw_text()` y `metro_draw_text_size()` dejaban puesta la fuente del **último tramo**: una cadena terminada en cirílico dejaba Inter activa, y el siguiente `lcd_getstringsize()`/`lcd_putsxy()` a pelo de un llamador heredaba la fuente equivocada. En M-117 esto se trató convirtiendo los dos llamadores que lo padecían; era tratar el síntoma. Ahora **la primitiva deja el estado como lo encontró** (`lcd_setfont(metro_font_id(role))` al salir), que es donde correspondía. Las conversiones de M-117 se quedan: ya no son necesarias por este motivo, pero siguen siendo la forma correcta de medir.
+
+`metro_draw_text_clipped()` no necesita el restore: trabaja sobre su propio `struct viewport` y lo devuelve con `lcd_set_viewport(old_vp)`, así que sus cambios de fuente nunca salieron de ahí.
+
+### Verificado
+
+- Test de regresión nuevo (`test_textseg.c`, 39/39): una frase rusa **real** de `metro_lang.c` tiene que dar `n > 12`, con ocho tramos cirílicos separados por tramos `PRIMARY` de un espacio. Si alguien vuelve a bajar el tope a una decena, esto lo caza.
+- `m118-dialog-ru-{before,after}.png` -- mismo commit, misma secuencia de botones, reconstruyendo entre una y otra.
+- Suite host completa en verde; simulador y build de destino con 0 errores; `stack_report.py` OK.
+
+### Defecto de maquetación aparte, NO corregido aquí
+
+En las dos capturas (antes **y** después, o sea previo a esta ronda) se ve que en ruso la pregunta `обновить библиотеку сейчас?` ocupa sus dos líneas y el detalle, que arranca en una `CONFIRM_DETAIL_Y` fija, se le encima. No lo toco en esta entrada: es una decisión de maquetación que afecta a los seis idiomas, no un efecto del dibujo por tramos. Queda anotado para que se decida aparte.
+
+**Archivos**: `metro_draw.c`, `test/test_textseg.c`. Ninguno de Rockbox fuera de `apps/metro/`.

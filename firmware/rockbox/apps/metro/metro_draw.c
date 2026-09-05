@@ -62,18 +62,43 @@ void metro_draw_clear(void)
  * UI (el constructor de maestras nunca dibuja, M-097), y una llamada
  * termina de usar el buffer antes de que empiece la siguiente --
  * lcd_putsxy() no cede la CPU. */
-#define METRO_TEXTSEG_BUF 256
-#define METRO_TEXTSEG_MAX 12
+/* M-118 (hallazgo de moonlit, commit 7b89e2c6): un espacio ASCII es
+ * PRIMARY y PARTE la corrida cirilica, asi que el ruso gasta ~2 tramos
+ * por palabra. Con los 12 de M-114, metro_textseg_build() cortaba y
+ * metro_draw_text() dibujaba truncado EN SILENCIO cualquier frase rusa
+ * de mas de ~6 palabras. Los rotulos cortos nunca llegaban al tope, que
+ * es justo por lo que ninguna captura de M-114/M-116/M-117 lo delato.
+ *
+ * Los numeros NO se heredan de moonlit: se midieron barriendo las seis
+ * tablas de metro_lang.c con el modulo puro (ver DECISIONS.md M-118).
+ * Peor caso real aqui: 113 tramos y 1157 bytes, el texto de licencia de
+ * "acerca de" en ruso -- los 1024/128 que uso moonlit para sus tablas
+ * truncarian ese caso. De ahi 2048/160, con holgura para que una cadena
+ * nueva no vuelva a rozar el tope. */
+#define METRO_TEXTSEG_BUF 2048
+#define METRO_TEXTSEG_MAX 160
 static char s_textseg_buf[METRO_TEXTSEG_BUF];
 
-static int build_segs(enum metro_font_role role, const char *str,
-                      struct metro_textseg *segs)
+/* Los tramos viven aqui, no en la pila de cada funcion: con 160 entradas
+ * un `struct metro_textseg segs[METRO_TEXTSEG_MAX]` local pasaba del
+ * kilobyte por marco, que es exactamente lo que stack_report.py (M-101)
+ * prohibe en apps/metro/.
+ *
+ * Compartirlos es seguro por lo mismo que el buffer de arriba (un solo
+ * hilo de UI, una llamada termina antes de que empiece la siguiente),
+ * con UNA regla: quien construya tramos tiene que TERMINAR de leerlos
+ * antes de llamar a otra funcion de dibujo, porque esa los reconstruye
+ * encima. metro_draw_tile() es el unico sitio que hace las dos cosas y
+ * respeta el orden a proposito (mide, y solo despues dibuja). */
+static struct metro_textseg s_textsegs[METRO_TEXTSEG_MAX];
+
+static int build_segs(enum metro_font_role role, const char *str)
 {
     if (!str)
         return 0;
     return metro_textseg_build(str, metro_font_has_cyrillic(role),
                                s_textseg_buf, sizeof(s_textseg_buf),
-                               segs, METRO_TEXTSEG_MAX);
+                               s_textsegs, METRO_TEXTSEG_MAX);
 }
 
 static int seg_font_id(enum metro_font_role role,
@@ -91,16 +116,15 @@ static int seg_font_id(enum metro_font_role role,
 void metro_draw_text_size(enum metro_font_role role, const char *str,
                           int *w, int *h)
 {
-    struct metro_textseg segs[METRO_TEXTSEG_MAX];
-    int n = build_segs(role, str, segs);
+    int n = build_segs(role, str);
     int total = 0, max_h = 0, i;
 
     for (i = 0; i < n; i++)
     {
         int sw, sh;
 
-        lcd_setfont(seg_font_id(role, &segs[i]));
-        lcd_getstringsize((const unsigned char *)segs[i].text, &sw, &sh);
+        lcd_setfont(seg_font_id(role, &s_textsegs[i]));
+        lcd_getstringsize((const unsigned char *)s_textsegs[i].text, &sw, &sh);
         total += sw;
         if (sh > max_h)
             max_h = sh;
@@ -122,6 +146,16 @@ void metro_draw_text_size(enum metro_font_role role, const char *str,
         *w = total;
     if (h)
         *h = max_h;
+
+    /* M-118: la fuente del viewport vuelve a la PRIMARIA del rol. Sin
+     * esto quedaba la del ultimo tramo medido/dibujado -- una cadena
+     * que terminara en cirilico dejaba Inter puesta, y el siguiente
+     * lcd_getstringsize()/lcd_putsxy() a pelo de un llamador (los
+     * bucles que miden y dibujan en metro_widgets.c y
+     * metro_screen_text.c) heredaba la fuente equivocada. La primitiva
+     * es la que debe dejar el estado como lo encontro, no cada
+     * llamador. */
+    lcd_setfont(metro_font_id(role));
 }
 
 int metro_draw_text_width(enum metro_font_role role, const char *str)
@@ -135,8 +169,7 @@ int metro_draw_text_width(enum metro_font_role role, const char *str)
 void metro_draw_text(enum metro_font_role role, int x, int y,
                       const char *str, unsigned color)
 {
-    struct metro_textseg segs[METRO_TEXTSEG_MAX];
-    int n = build_segs(role, str, segs);
+    int n = build_segs(role, str);
     int cx = x, i;
 
     lcd_set_foreground(color);
@@ -145,14 +178,24 @@ void metro_draw_text(enum metro_font_role role, int x, int y,
     {
         int w, h;
 
-        lcd_setfont(seg_font_id(role, &segs[i]));
-        lcd_putsxy(cx, y, (const unsigned char *)segs[i].text);
+        lcd_setfont(seg_font_id(role, &s_textsegs[i]));
+        lcd_putsxy(cx, y, (const unsigned char *)s_textsegs[i].text);
         if (i + 1 < n)
         {
-            lcd_getstringsize((const unsigned char *)segs[i].text, &w, &h);
+            lcd_getstringsize((const unsigned char *)s_textsegs[i].text, &w, &h);
             cx += w;
         }
     }
+
+    /* M-118: la fuente del viewport vuelve a la PRIMARIA del rol. Sin
+     * esto quedaba la del ultimo tramo medido/dibujado -- una cadena
+     * que terminara en cirilico dejaba Inter puesta, y el siguiente
+     * lcd_getstringsize()/lcd_putsxy() a pelo de un llamador (los
+     * bucles que miden y dibujan en metro_widgets.c y
+     * metro_screen_text.c) heredaba la fuente equivocada. La primitiva
+     * es la que debe dejar el estado como lo encontro, no cada
+     * llamador. */
+    lcd_setfont(metro_font_id(role));
 }
 
 void metro_draw_text_cut_right(enum metro_font_role role, int x, int y,
@@ -166,13 +209,12 @@ void metro_draw_text_clipped(enum metro_font_role role, int clip_x, int clip_w,
 {
     struct viewport vp;
     struct viewport *old_vp;
-    struct metro_textseg segs[METRO_TEXTSEG_MAX];
     int n, cx, i;
 
     if (clip_w <= 0)
         return;
 
-    n = build_segs(role, str, segs);
+    n = build_segs(role, str);
     if (n == 0)
         return;
 
@@ -218,11 +260,11 @@ void metro_draw_text_clipped(enum metro_font_role role, int clip_x, int clip_w,
     {
         int w, h;
 
-        lcd_setfont(seg_font_id(role, &segs[i]));
-        lcd_putsxy(cx, y - vp.y, (const unsigned char *)segs[i].text);
+        lcd_setfont(seg_font_id(role, &s_textsegs[i]));
+        lcd_putsxy(cx, y - vp.y, (const unsigned char *)s_textsegs[i].text);
         if (i + 1 < n)
         {
-            lcd_getstringsize((const unsigned char *)segs[i].text, &w, &h);
+            lcd_getstringsize((const unsigned char *)s_textsegs[i].text, &w, &h);
             cx += w;
         }
     }
@@ -490,8 +532,7 @@ void metro_draw_tile(int x, int y, int size, const char *label)
          * Selawik, que no tiene cirílico, y el tile salía con el glifo
          * por defecto ("?") mientras su rótulo -- que sí pasa por
          * metro_draw_text() -- se veía bien. */
-        struct metro_textseg segs[METRO_TEXTSEG_MAX];
-        int n = build_segs(MFONT_DISPLAY, initial, segs);
+        int n = build_segs(MFONT_DISPLAY, initial);
 
         if (n > 0)
         {
@@ -499,8 +540,8 @@ void metro_draw_tile(int x, int y, int size, const char *label)
              * fuente es la que da el alto correcto para centrar (la
              * cirílica de MFONT_DISPLAY cae a la de title, M-113, y no
              * mide lo mismo que display-48). */
-            lcd_setfont(seg_font_id(MFONT_DISPLAY, &segs[0]));
-            lcd_getstringsize((const unsigned char *)segs[0].text, &w, &h);
+            lcd_setfont(seg_font_id(MFONT_DISPLAY, &s_textsegs[0]));
+            lcd_getstringsize((const unsigned char *)s_textsegs[0].text, &w, &h);
             metro_draw_text(MFONT_DISPLAY, x + (size - w) / 2,
                             y + (size - h) / 2, initial, metro_color_bg());
         }

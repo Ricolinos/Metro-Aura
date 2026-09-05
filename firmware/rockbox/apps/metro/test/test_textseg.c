@@ -180,6 +180,47 @@ static void test_no_desborda(void)
     }
 }
 
+/* M-118 (hallazgo de moonlit, 7b89e2c6): un espacio ASCII es PRIMARY y
+ * PARTE la corrida cirilica, asi que el ruso gasta ~2 tramos por
+ * palabra. Este test fija que una frase rusa REAL (de metro_lang.c)
+ * pasa holgadamente de los 12 tramos que M-114 daba de tope: con
+ * aquel limite, metro_draw_text() la dibujaba truncada en silencio.
+ *
+ * No comprueba un numero exacto de tramos -- comprueba que el orden de
+ * magnitud es el que obliga a dimensionar de verdad. Si alguien vuelve
+ * a bajar METRO_TEXTSEG_MAX a una decena, esto lo caza. */
+static void test_frase_rusa_pasa_de_doce_tramos(void)
+{
+    char buf[512];
+    struct metro_textseg segs[64];
+    int n, i, cyr = 0;
+
+    /* "Полный исходный код и текст лицензии находятся здесь" */
+    n = metro_textseg_build(
+        "\xd0\x9f\xd0\xbe\xd0\xbb\xd0\xbd\xd1\x8b\xd0\xb9"
+        "\x20\xd0\xb8\xd1\x81\xd1\x85\xd0\xbe\xd0\xb4\xd0"
+        "\xbd\xd1\x8b\xd0\xb9\x20\xd0\xba\xd0\xbe\xd0\xb4"
+        "\x20\xd0\xb8\x20\xd1\x82\xd0\xb5\xd0\xba\xd1\x81"
+        "\xd1\x82\x20\xd0\xbb\xd0\xb8\xd1\x86\xd0\xb5\xd0"
+        "\xbd\xd0\xb7\xd0\xb8\xd0\xb8\x20\xd0\xbd\xd0\xb0"
+        "\xd1\x85\xd0\xbe\xd0\xb4\xd1\x8f\xd1\x82\xd1\x81"
+        "\xd1\x8f\x20\xd0\xb7\xd0\xb4\xd0\xb5\xd1\x81\xd1"
+        "\x8c",
+        true, buf, sizeof(buf), segs, 64);
+
+    CHECK(n > 12);
+
+    /* Y que la particion es la esperada: palabras cirilicas separadas
+     * por tramos PRIMARY de un espacio. */
+    for (i = 0; i < n; i++)
+        if (segs[i].kind == METRO_TEXTSEG_CYRILLIC)
+            cyr++;
+    CHECK(cyr == 8);                 /* ocho palabras rusas */
+    CHECK(segs[0].kind == METRO_TEXTSEG_CYRILLIC);
+    CHECK(segs[1].kind == METRO_TEXTSEG_PRIMARY);
+    CHECK(!strcmp(segs[1].text, " "));
+}
+
 int main(void)
 {
     test_sin_fuente_cirilica();
@@ -191,6 +232,7 @@ int main(void)
     test_fuera_de_rango_cae_a_primary();
     test_degenerados();
     test_no_desborda();
+    test_frase_rusa_pasa_de_doce_tramos();
 
     printf("test_textseg: %d/%d checks OK\n", checks - failures, checks);
     if (failures)
