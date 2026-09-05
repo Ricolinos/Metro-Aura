@@ -4201,6 +4201,7 @@ Antes/después en ruso, mismo commit, mismas secuencias de botones, reconstruyen
 - `m117-pivots-ru-{before,after}.png` -- el hueco entre `исполнители` y `альбомы` se cierra a su ancho real y el tercer pivote asoma donde le toca.
 - `m117-centered-ru-{before,after}.png` -- el mensaje de estado vacío (`истории пока нет…`) estaba corrido a la derecha por medir de menos; queda centrado.
 - `m117-nowplaying-ru-after.png`, `m117-tile-ru-after.png` -- sin regresión en lo que M-114/M-116 ya habían dejado bien.
+- `m117-pivots-settings-ru-after.png` (añadida después, a petición de la supervisora) -- la fila de pivotes de **Ajustes** en ruso: `общие · экран · о системе`, tres palabras separadas. moonlit reportó ese mismo caso saliéndole pegado (`общиекранпрограмме`) en su v0.2.2. La captura original de M-117 era la fila de Música, así que no cubría este sitio aunque el arreglo fuera el mismo. De paso se ve la otra conversión: los subtítulos cirílicos alineados a la derecha (`Русский`, `полная`, `выкл`, `плоский`) caen en su sitio.
 
 Simulador reconstruido, 0 errores (los avisos de `-Wmissing-field-initializers`/`-Wformat-truncation` de `metro_screen_hub.c`/`metro_screen_nowplaying.c` son previos y ajenos a esta entrada). Suite host completa en verde.
 
