@@ -4157,9 +4157,10 @@ inexistente:
 **Anulado, no pendiente**: "Ahora Suena en cirílico" (M-114/M-115) — verificado en
 el simulador en `es`/`ru`/`de`, ver arriba.
 
-**Estado de release**: sin tag y sin release. Tag sugerido `v0.7.1` (desde M-112),
-que recogería M-109…M-116. Queda a la autorización del dueño; este repo no
-publica nada por su cuenta.
+~~**Estado de release**: sin tag y sin release. Tag sugerido `v0.7.1`.~~
+**Publicado** como `v0.7.1` el 2026-09-04, con autorización directa del dueño.
+La lista viva de pendientes de hardware es la del cierre de M-117…M-122, al
+final de este archivo.
 
 ## M-117 — Medir texto cirílico con la fuente primaria: el glifo salía bien y la medida mal
 
@@ -4414,3 +4415,18 @@ Build de destino y simulador con 0 errores; `stack_report` OK (peor camino 4872 
 **Archivos**: `metro_albumart.c`, `gen_test_media.sh`. Ninguno de Rockbox fuera de `apps/metro/`.
 
 **Sin release**: se agrupa con M-117…M-121 en `v0.7.3`, a la confirmación del dueño.
+
+### Cierre de M-117 … M-122 (preparado para `v0.7.3`)
+
+Lista viva de verificación en hardware. Sustituye a la del cierre de "ajustes 2"
+en cuanto a qué sigue abierto; los dos ítems de allá siguen vigentes y se
+repiten aquí para no tener que leer dos listas.
+
+- [ ] **M-109 (rueda continua)**: girar la rueda física sin levantar el dedo a lo largo de ~20 fotos en el visor. El arnés headless demuestra el ciclo `REPEAT` sintético, no una rueda real sostenida.
+- [ ] **M-114 (nitidez del cirílico)**: en el LCD real, que el cirílico de Inter conviva legible con el Selawik primario en la misma fila. El simulador confirmó que no se solapan; el contraste entre dos tipografías en el panel físico es otra cosa.
+- [ ] **M-119 (leyenda del arranque)**: que la pantalla del bootloader diga `metro · arranque 1`. El simulador no arranca el bootloader.
+- [ ] **M-122 (coste del decode directo)**: cronometrar en el iPod real el decode del fondo de Ahora Suena desde una foto de artista de 320×320. El `DEBUGF` permanente ya imprime los ticks, así que no hace falta recompilar nada: basta cambiar de artista y leer el log. Los 60 ms medidos son de un Mac; el ARM del 6G costará más, y el camino directo **no tiene caché en disco** (alternar entre dos artistas paga el decode cada vez, a diferencia del camino de la maestra, que se amortiza tras el primero).
+
+**Salida documentada si M-122 pasara de ~150 ms en el aparato** (acordada con la supervisora, **no** se implementa ahora): cachear el fondo ya derivado bajo `/.aura/art` como una maestra de 320 **sólo para artistas**. Eso es un **cambio de contrato** -- hoy la maestra de artistas es de 130 px y la comparten las tres familias, así que subirla o añadir una segunda resolución se decide en el contrato, no aquí. Se anota como plan B con su condición de disparo para que, si el número sale mal, no haya que rediseñar desde cero con el aparato en la mano.
+
+**Estado de release**: `v0.7.3` empaquetable desde `main` (M-117…M-122), sin tag y sin publicar. Queda a la confirmación directa del dueño; este repo no publica nada por su cuenta.
