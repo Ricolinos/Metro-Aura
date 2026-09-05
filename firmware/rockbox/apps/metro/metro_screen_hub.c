@@ -902,8 +902,10 @@ static void draw_now_playing_row(int y, bool selected)
     {
         int w, h, span, offset;
 
-        lcd_setfont(metro_font_id(MFONT_DISPLAY));
-        lcd_getstringsize((const unsigned char *)row.title, &w, &h);
+        /* M-117: el ciclo de esta marquesina ES el ancho medido. Con
+         * la primaria, un título cirílico medía de menos: `span` corto,
+         * y las dos copias del bucle se encimaban en pantalla. */
+        metro_draw_text_size(MFONT_DISPLAY, row.title, &w, &h);
         span = w + METRO_HUB_MARQUEE_GAP;
         offset = (int)((current_tick / METRO_HUB_MARQUEE_TICKS_PX) % span);
 

@@ -58,8 +58,9 @@ static int wrap(const char *body, int max_w)
     int n = 0;
     const char *p = body;
 
-    lcd_setfont(metro_font_id(MFONT_LIST));
-
+    /* M-117: ya no hay lcd_setfont() aquí -- metro_draw_text_size()
+     * elige la fuente por tramo en cada medida, que es justo lo que un
+     * `lcd_setfont()` único al entrar no podía hacer. */
     while (*p && n < TEXT_MAX_LINES)
     {
         const char *nl = strchr(p, '\n');
@@ -87,7 +88,7 @@ static int wrap(const char *body, int max_w)
                 {
                     memcpy(s_lines[n], p + off, i);
                     s_lines[n][i] = '\0';
-                    lcd_getstringsize((const unsigned char *)s_lines[n], &w, NULL);
+                    metro_draw_text_size(MFONT_LIST, s_lines[n], &w, NULL); /* M-117 */
                     if (w > max_w)
                         break;
                     cut = i;

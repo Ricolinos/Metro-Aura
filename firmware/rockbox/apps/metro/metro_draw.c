@@ -88,21 +88,48 @@ static int seg_font_id(enum metro_font_role role,
  * SU fuente (un tramo cirilico mide distinto en Inter que en Selawik).
  * Medir la cadena original daria otro numero, y quien centra texto o
  * decide si hace falta marquesina se equivocaria por esa diferencia. */
-int metro_draw_text_width(enum metro_font_role role, const char *str)
+void metro_draw_text_size(enum metro_font_role role, const char *str,
+                          int *w, int *h)
 {
     struct metro_textseg segs[METRO_TEXTSEG_MAX];
     int n = build_segs(role, str, segs);
-    int total = 0, i;
+    int total = 0, max_h = 0, i;
 
     for (i = 0; i < n; i++)
     {
-        int w, h;
+        int sw, sh;
 
         lcd_setfont(seg_font_id(role, &segs[i]));
-        lcd_getstringsize((const unsigned char *)segs[i].text, &w, &h);
-        total += w;
+        lcd_getstringsize((const unsigned char *)segs[i].text, &sw, &sh);
+        total += sw;
+        if (sh > max_h)
+            max_h = sh;
     }
-    return total;
+
+    /* Cadena vacía (o NULL): sin tramos que medir, pero el alto tiene
+     * que seguir siendo el de la fuente del rol -- varios llamadores
+     * centran verticalmente con él, y devolver 0 los mandaba al borde
+     * superior. */
+    if (n == 0)
+    {
+        int dummy_w;
+
+        lcd_setfont(metro_font_id(role));
+        lcd_getstringsize((const unsigned char *)"", &dummy_w, &max_h);
+    }
+
+    if (w)
+        *w = total;
+    if (h)
+        *h = max_h;
+}
+
+int metro_draw_text_width(enum metro_font_role role, const char *str)
+{
+    int w;
+
+    metro_draw_text_size(role, str, &w, NULL);
+    return w;
 }
 
 void metro_draw_text(enum metro_font_role role, int x, int y,
@@ -321,14 +348,16 @@ void metro_draw_pivots(const struct metro_page *page, int active_pivot,
 {
     int i, x = METRO_ROWS_LEFT_X + x_offset;
 
-    lcd_setfont(metro_font_id(MFONT_DISPLAY));
-
     for (i = active_pivot; i < page->npivots && x < LCD_WIDTH; i++)
     {
         int w, h;
         const char *name = metro_lang_str(page->pivots[i].name);
 
-        lcd_getstringsize((const unsigned char *)name, &w, &h);
+        /* M-117: los nombres de pivote son de los textos MAS cirílicos
+         * de la UI en ruso ("исполнители", "альбомы"). Midiéndolos con
+         * la primaria, el avance de x salía corto y los pivotes se
+         * encimaban. */
+        metro_draw_text_size(MFONT_DISPLAY, name, &w, &h);
         metro_draw_text(MFONT_DISPLAY, x, METRO_PIVOT_Y, name,
                          i == active_pivot ? metro_color_fg()
                                             : metro_color_tertiary());
@@ -380,8 +409,7 @@ void metro_draw_rows_ex(const struct metro_pivot *pivot, int first, int sel,
         if (row.subtitle)
         {
             int sub_w, sub_h;
-            lcd_setfont(metro_font_id(MFONT_CAPTION));
-            lcd_getstringsize((const unsigned char *)row.subtitle, &sub_w, &sub_h);
+            metro_draw_text_size(MFONT_CAPTION, row.subtitle, &sub_w, &sub_h); /* M-117 */
             metro_draw_text(MFONT_CAPTION, LCD_WIDTH - 12 - sub_w, row_y + 4,
                              row.subtitle, metro_color_tertiary());
             title_clip_w = LCD_WIDTH - 12 - sub_w - x - 8;
@@ -532,8 +560,7 @@ static void draw_tile_caption(const struct metro_pivot *pivot, int sel, int coun
     {
         int sub_w, sub_h;
 
-        lcd_setfont(metro_font_id(MFONT_CAPTION));
-        lcd_getstringsize((const unsigned char *)row.subtitle, &sub_w, &sub_h);
+        metro_draw_text_size(MFONT_CAPTION, row.subtitle, &sub_w, &sub_h); /* M-117 */
         metro_draw_text(MFONT_CAPTION, LCD_WIDTH - METRO_ROWS_LEFT_X - sub_w,
                          y + 4, row.subtitle, metro_color_tertiary());
         title_clip_w = LCD_WIDTH - METRO_ROWS_LEFT_X - sub_w

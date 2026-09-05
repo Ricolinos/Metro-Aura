@@ -4160,3 +4160,50 @@ el simulador en `es`/`ru`/`de`, ver arriba.
 **Estado de release**: sin tag y sin release. Tag sugerido `v0.7.1` (desde M-112),
 que recogería M-109…M-116. Queda a la autorización del dueño; este repo no
 publica nada por su cuenta.
+
+## M-117 — Medir texto cirílico con la fuente primaria: el glifo salía bien y la medida mal
+
+Hallazgo relevado de moonlit.aura (addendum a su D-081, commit `c21674f4`, leído sólo como referencia). Aplica igual aquí, y quedó **dentro de v0.7.1** -- se corrige para la siguiente.
+
+### El error
+
+M-114 dejó `metro_draw_text()` dibujando por tramos, cada uno con su fuente. Pero **medir** siguió siendo cosa de cada llamador, con el par de siempre:
+
+```c
+lcd_setfont(metro_font_id(role));
+lcd_getstringsize((const unsigned char *)str, &w, &h);
+```
+
+Para una cadena cirílica eso mide con la fuente **primaria** (Selawik), que no tiene esos glifos: `lcd_getstringsize()` devuelve el ancho del `defaultchar`, no el del glifo que `metro_draw_text()` acaba pintando con Inter. El texto se veía correcto y la medida no correspondía a lo que había en pantalla. Síntomas, todos "de maquetación" y por eso fáciles de achacar al diseño:
+
+- Centrados corridos (`(LCD_WIDTH - w) / 2` con `w` equivocado).
+- Nombres de pivote encimados: `metro_draw_pivots()` avanza `x` con el ancho medido, y los nombres de pivote son de los textos más cirílicos de la UI rusa (`исполнители`, `альбомы`).
+- La marquesina del hub con el ciclo corto: su `span` **es** el ancho medido, así que las dos copias del bucle se encimaban.
+- Subtítulos alineados a la derecha y su frontera de recorte, fuera de sitio.
+- El plegado de líneas de `metro_screen_text.c`/`metro_widgets.c` cortando donde no tocaba.
+
+Es el mismo tipo de sitio que M-116: código que se quedó fuera del mecanismo de M-114 porque **medir** no parecía "dibujar". Van dos.
+
+### La corrección
+
+`metro_draw_text_size(role, str, *w, *h)` (`metro_draw.c`), que recorre los mismos tramos que `metro_draw_text()` y suma cada uno **en su fuente**. `metro_draw_text_width()` pasa a ser una envoltura de un renglón sobre ella, así que no hay dos caminos de medida que puedan divergir. Cadena vacía o `NULL`: ancho 0 pero alto el de la fuente del rol, porque varios llamadores centran en vertical con él y un 0 los mandaba al borde superior.
+
+Convertidos **catorce** sitios en nueve archivos: `metro_draw.c` (pivotes, subtítulo de fila, subtítulo de tile), `metro_main.c` (pantalla de apagado), `metro_screen_lock.c` (rótulo en reposo), `metro_screen_hub.c` (marquesina), `metro_transitions.c` (borrado de la ceja), `metro_screen_photo_viewer.c` (nombre de archivo, contador, mensaje centrado), `metro_screen_text.c` (plegado), `metro_widgets.c` (pregunta, cabeza, dos de detalle, estado vacío).
+
+Se dejan a propósito **sin convertir** los sitios que no pueden recibir un codepoint cirílico, cada uno con su `lcd_setfont()` inmediatamente antes: el dígito del candado, la duración de Ahora Suena (`format_time()`, ASCII), el logotipo `metro`/`aura` del arranque, y las dos sondas de alto de línea con `"Ag"` -- esa sonda quiere justo el alto de la fuente primaria del rol y está bien como está.
+
+Trampa que obligó a convertir dos sitios que por su contenido no lo necesitaban (el contador `"%d / %d"` del visor y la "cabeza" de `draw_question()`): `metro_draw_text_size()` deja la fuente del viewport en la del **último tramo medido**. Un llamador que hacía un `lcd_setfont()` al entrar y luego varias `lcd_getstringsize()` a pelo confiando en él heredaba ahora la fuente equivocada. O pasan todas por la primitiva, o ninguna. Queda anotado en el encabezado de `metro_draw.h`.
+
+### Verificado
+
+Antes/después en ruso, mismo commit, mismas secuencias de botones, reconstruyendo entre una y otra:
+
+- `m117-pivots-ru-{before,after}.png` -- el hueco entre `исполнители` y `альбомы` se cierra a su ancho real y el tercer pivote asoma donde le toca.
+- `m117-centered-ru-{before,after}.png` -- el mensaje de estado vacío (`истории пока нет…`) estaba corrido a la derecha por medir de menos; queda centrado.
+- `m117-nowplaying-ru-after.png`, `m117-tile-ru-after.png` -- sin regresión en lo que M-114/M-116 ya habían dejado bien.
+
+Simulador reconstruido, 0 errores (los avisos de `-Wmissing-field-initializers`/`-Wformat-truncation` de `metro_screen_hub.c`/`metro_screen_nowplaying.c` son previos y ajenos a esta entrada). Suite host completa en verde.
+
+**Archivos**: `metro_draw.c/.h` (primitiva nueva) más ocho archivos de pantalla. Ninguno de Rockbox fuera de `apps/metro/`.
+
+**Sin release**: se agrupa con lo que el dueño encuentre en hardware sobre v0.7.1. Tag sugerido para ese momento: `v0.7.2`.

@@ -395,8 +395,7 @@ static void draw_resting(void)
                               (LCD_WIDTH - metro_glyph_lock_large.width) / 2,
                               LOCK_RESTING_GLYPH_Y, metro_color_fg());
 
-    lcd_setfont(metro_font_id(MFONT_TITLE));
-    lcd_getstringsize((const unsigned char *)label, &w, &h);
+    metro_draw_text_size(MFONT_TITLE, label, &w, &h); /* M-117 */
     metro_draw_text(MFONT_TITLE, (LCD_WIDTH - w) / 2, LOCK_RESTING_LABEL_Y,
                      label, metro_color_secondary());
     lcd_update();

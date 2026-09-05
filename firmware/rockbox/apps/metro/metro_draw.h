@@ -68,6 +68,25 @@ void metro_draw_text(enum metro_font_role role, int x, int y,
  * arriesgarse a medir con un rol distinto del que dibuja. */
 int metro_draw_text_width(enum metro_font_role role, const char *str);
 
+/* M-117 (addendum de moonlit a su D-081): ancho Y ALTO de `str` en el
+ * rol dado, midiendo tramo por tramo igual que metro_draw_text().
+ *
+ * Es la única forma correcta de medir texto desde fuera de este
+ * módulo. El par `lcd_setfont(metro_font_id(role))` +
+ * `lcd_getstringsize()` que usaban los llamadores mide un codepoint
+ * cirílico con la fuente PRIMARIA, que no lo tiene: devuelve el ancho
+ * del `defaultchar`, no el del glifo que metro_draw_text() acaba
+ * dibujando con la fuente cirílica. El glifo salía bien y la medida
+ * mal -- centrados corridos, marquesinas con el ciclo corto y las dos
+ * copias encimadas, textos recortados donde no tocaba.
+ *
+ * `w` y/o `h` pueden ser NULL. Deja la fuente del viewport en la del
+ * último tramo medido: si un llamador medía una vez y luego hacía
+ * varias `lcd_getstringsize()` a pelo confiando en el
+ * `lcd_setfont()` inicial, tiene que pasar TODAS por aquí. */
+void metro_draw_text_size(enum metro_font_role role, const char *str,
+                          int *w, int *h);
+
 /* Same, but clipped to a viewport of exactly clip_w pixels starting
  * at x -- for content that must never run into a fixed-width
  * neighbour (e.g. a row that must stop before a right-aligned icon).

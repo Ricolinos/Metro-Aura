@@ -50,8 +50,7 @@ static void draw_question(const char *question)
     const char *tail;
     size_t cut;
 
-    lcd_setfont(metro_font_id(MFONT_TITLE));
-    lcd_getstringsize((const unsigned char *)question, &w, &h);
+    metro_draw_text_size(MFONT_TITLE, question, &w, &h); /* M-117 */
     if (w <= max_w)
     {
         metro_draw_text(MFONT_TITLE, CONFIRM_QUESTION_X, CONFIRM_QUESTION_Y,
@@ -68,7 +67,7 @@ static void draw_question(const char *question)
             break;
         memcpy(head, question, n);
         head[n] = '\0';
-        lcd_getstringsize((const unsigned char *)head, &w, NULL);
+        metro_draw_text_size(MFONT_TITLE, head, &w, NULL); /* M-117 */
         if (w > max_w)
             break;
         cut = n;
@@ -125,7 +124,7 @@ static void draw_detail(const char *detail)
         {
             memcpy(line, p, len);
             line[len] = '\0';
-            lcd_getstringsize((const unsigned char *)line, &w, NULL);
+            metro_draw_text_size(MFONT_CAPTION, line, &w, NULL); /* M-117 */
             if (w <= max_w)
             {
                 metro_draw_text(MFONT_CAPTION, CONFIRM_QUESTION_X, y, line,
@@ -143,7 +142,7 @@ static void draw_detail(const char *detail)
                 break;
             memcpy(line, p, n);
             line[n] = '\0';
-            lcd_getstringsize((const unsigned char *)line, &w, NULL);
+            metro_draw_text_size(MFONT_CAPTION, line, &w, NULL); /* M-117 */
             if (w > max_w)
                 break;
             cut = n;
@@ -246,8 +245,7 @@ void metro_widgets_draw_empty_state(const char *message)
 
     metro_draw_tile(x, y, METRO_EMPTY_TILE_SIZE, " ");
 
-    lcd_setfont(metro_font_id(MFONT_CAPTION));
-    lcd_getstringsize((const unsigned char *)message, &w, &h);
+    metro_draw_text_size(MFONT_CAPTION, message, &w, &h); /* M-117 */
     metro_draw_text(MFONT_CAPTION, (LCD_WIDTH - w) / 2, y + METRO_EMPTY_TILE_SIZE + 16,
                      message, metro_color_secondary());
 }

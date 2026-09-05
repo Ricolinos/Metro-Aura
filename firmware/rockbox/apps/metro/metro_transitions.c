@@ -262,8 +262,7 @@ static void erase_dest_eyebrow(void)
 {
     int w, h;
 
-    lcd_setfont(metro_font_id(MFONT_CAPTION));
-    lcd_getstringsize((const unsigned char *)s_cont_text, &w, &h);
+    metro_draw_text_size(MFONT_CAPTION, s_cont_text, &w, &h); /* M-117 */
 
     metro_fb_fill_rect(s_fb_to, METRO_DRAW_LEFT_X, METRO_CONTINUUM_TO_Y,
                         w, h, metro_color_bg());

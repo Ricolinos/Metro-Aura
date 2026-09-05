@@ -341,13 +341,17 @@ static void draw_preview_caption(void)
     lcd_fillrect(0, y, LCD_WIDTH, METRO_PHOTO_PREVIEW_CAPTION_H);
 
     snprintf(buf, sizeof(buf), "%s", s_items[s_index].filename);
-    lcd_setfont(metro_font_id(MFONT_CAPTION));
-    lcd_getstringsize((const unsigned char *)buf, &w, &h);
+    /* M-117: el nombre de archivo es texto del usuario -- puede venir
+     * en cirílico desde una biblioteca sincronizada. */
+    metro_draw_text_size(MFONT_CAPTION, buf, &w, &h);
     metro_draw_text_cut_right(MFONT_CAPTION, (LCD_WIDTH - w) / 2 > 0 ? (LCD_WIDTH - w) / 2 : 4,
                               y + 4, buf, metro_color_fg(), LCD_WIDTH - 8);
 
     snprintf(buf, sizeof(buf), "%d / %d", s_index + 1, s_count);
-    lcd_getstringsize((const unsigned char *)buf, &w, &h);
+    /* M-117: ASCII puro, pero la medida de arriba ya dejó la fuente del
+     * viewport en la del último tramo -- medir a pelo aquí heredaría esa
+     * fuente en vez de la del rol. */
+    metro_draw_text_size(MFONT_CAPTION, buf, &w, &h);
     metro_draw_text(MFONT_CAPTION, (LCD_WIDTH - w) / 2, y + 4 + h + 2,
                      buf, metro_color_secondary());
 }
@@ -447,8 +451,7 @@ static void draw_centered_message(enum metro_lang_id id)
     const char *text = metro_lang_str(id);
     int w, h;
 
-    lcd_setfont(metro_font_id(MFONT_CAPTION));
-    lcd_getstringsize((const unsigned char *)text, &w, &h);
+    metro_draw_text_size(MFONT_CAPTION, text, &w, &h); /* M-117 */
     metro_draw_text(MFONT_CAPTION, (LCD_WIDTH - w) / 2, (LCD_HEIGHT - h) / 2,
                      text, metro_color_fg());
 }
