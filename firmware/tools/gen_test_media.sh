@@ -322,12 +322,19 @@ ffmpeg -y -loglevel error -f lavfi -i "sine=frequency=410:duration=2" \
   -metadata genre="Schlager" -metadata track=1 \
   -c:a libmp3lame -b:a 96k "$MUSIC_DIR/Gruen/01 Strasse der Groesse.mp3"
 
-mkdir -p "$MUSIC_DIR/Chaykovskiy"
+# M-121 (aviso de Aura D-359): nombres INVENTADOS, no de un artista ni
+# una obra reales -- estos fixtures salen en las capturas del README
+# publico. Lo que este fixture prueba no es el nombre sino la ё
+# (U+0451): su mayuscula Ё obliga al intercambio de byte lider en
+# metro_lang_upper() (0xD1 -> 0xD0), que es el caso que ninguna otra
+# cadena cirilica del catalogo ejercita. La carpeta va en ASCII por
+# D-357, igual que la de abajo.
+mkdir -p "$MUSIC_DIR/LangFixtureRU"
 ffmpeg -y -loglevel error -f lavfi -i "sine=frequency=430:duration=2" \
-  -metadata title="Утро в Москве" -metadata artist="Пётр Чайковский" \
-  -metadata album_artist="Пётр Чайковский" -metadata album="Времена года" \
+  -metadata title="Утро в Москве" -metadata artist="Фёдор Тестов" \
+  -metadata album_artist="Фёдор Тестов" -metadata album="Пробный Альбом" \
   -metadata genre="Classical" -metadata track=1 \
-  -c:a libmp3lame -b:a 96k "$MUSIC_DIR/Chaykovskiy/01 Utro v Moskve.mp3"
+  -c:a libmp3lame -b:a 96k "$MUSIC_DIR/LangFixtureRU/01 Utro v Moskve.mp3"
 
 # R5-F3 (M-083): una pista LARGA (20 s). Todo lo demás dura <= 3 s, y eso
 # no alcanza para verificar nada temporizado en el reproductor: el nivel
@@ -341,6 +348,11 @@ ffmpeg -y -loglevel error -f lavfi -i "sine=frequency=430:duration=2" \
 # investigar por qué el pivot "canciones" del simulador aparecía vacío
 # pese a que la base de tagcache sí se construía.
 #
+# (El nombre de artista que se cita abajo es el que este fixture tenía
+# hasta M-121, cuando se cambió por uno inventado -- ver el comentario
+# junto al ffmpeg. La historia del bug se deja tal cual porque las rutas
+# viejas son parte de lo que explica.)
+#
 # 1. Esta pista vivía en "$OUT_DIR/Cultura Profética/..." -- ANTES de
 #    que "$MUSIC_DIR" existiera como variable, y sobre todo ANTES del
 #    "rm -rf $MUSIC_DIR" (unas líneas arriba de este comentario, al
@@ -353,20 +365,24 @@ ffmpeg -y -loglevel error -f lavfi -i "sine=frequency=430:duration=2" \
 #    borrada de nuevo por el propio `rm -rf`, que es exactamente lo que
 #    pasó en el primer intento de este mismo hallazgo.
 # 2. Hallazgo de Aura-Firmware (D-357), aplicado por si acaso: la
-#    CARPETA va sin acento ("Cultura Profetica", ASCII) aunque el
-#    ARTISTA en las etiquetas ID3 sí lo lleve ("Cultura Profética") --
+#    CARPETA va en ASCII puro ("LangFixtureES") aunque el ARTISTA en
+#    las etiquetas ID3 sí lleve acento ("Café Ficticio") --
 #    son dos pruebas distintas (nombre de archivo vs. metadata) que
 #    compartían sin querer el mismo string. APFS puede normalizar a
 #    NFD un nombre de directorio no-ASCII al crearlo, y el escaneo del
 #    simulador no siempre reconcilia esa forma con la NFC que espera.
 #    El acento de la carpeta nunca fue parte de lo que este fixture
 #    pretendía probar (eso es la metadata, sin tocar).
-mkdir -p "$MUSIC_DIR/Cultura Profetica/M.O.T.A"
+# M-121 (aviso de Aura D-359): nombre INVENTADO. Antes usaba una banda
+# real; lo que el fixture prueba es el acento en la metadata (la E con
+# tilde bajo metro_lang_upper()) y la duracion de 20 s, no quien la
+# firma.
+mkdir -p "$MUSIC_DIR/LangFixtureES/Muestra Larga"
 ffmpeg -y -loglevel error \
   -f lavfi -i "sine=frequency=220:duration=20" \
-  -metadata title="Un deseo" -metadata artist="Cultura Profética" \
-  -metadata album="M.O.T.A" \
-  -c:a libmp3lame -b:a 128k "$MUSIC_DIR/Cultura Profetica/M.O.T.A/01 Un deseo.mp3"
+  -metadata title="Un deseo" -metadata artist="Café Ficticio" \
+  -metadata album="Muestra Larga" \
+  -c:a libmp3lame -b:a 128k "$MUSIC_DIR/LangFixtureES/Muestra Larga/01 Un deseo.mp3"
 
 echo "==> Generando residuales de macOS de prueba (AppleDouble)"
 printf '\x00\x05\x16\x07appledouble de prueba' > "$OUT_DIR/Photos/._diagram.jpg"
