@@ -4304,3 +4304,31 @@ Idénticos: el binario ya no depende del commit. Y la palanca nueva sí es una p
 **Archivos**: `firmware/BOOT_VERSION` (nuevo), `firmware/tools/build_target.sh`. **Ningún archivo bajo `firmware/rockbox/`**, así que no hay entrada nueva en `MODIFICATIONS.md` -- la de M-107 por `bootloader/ipod-s5l87xx.c` ya estaba y no cambia.
 
 **Pendiente para la lista de verificación en hardware**: leer la leyenda de la pantalla de arranque en el iPod real y confirmar que dice `metro · arranque 1`. El simulador no arranca el bootloader.
+
+## M-120 — El diálogo de confirmación tenía tres bloques en Y fijas que se encimaban entre sí
+
+Anotado al final de M-118 como defecto de maquetación aparte; la supervisora pidió corregirlo. **No** es efecto del dibujo por tramos: se ve igual en capturas anteriores a M-118.
+
+### El error
+
+`metro_widgets_confirm_detail()` dibujaba sus tres bloques en coordenadas fijas: pregunta en `CONFIRM_QUESTION_Y = 90`, detalle en `CONFIRM_DETAIL_Y = 124`, respuestas en `150`/`178`. Esas constantes se calcularon para una pregunta de **una** línea, pero `draw_question()` parte en dos cuando no cabe (M-093), y entonces su bloque termina en `90 + h/2 + h` = 132 con `MFONT_TITLE` a 28 px -- ocho píxeles por debajo de donde empieza el detalle.
+
+En ruso, `обновить библиотеку сейчас?` parte en dos y el detalle se le encimaba.
+
+### Lo que la investigación cambió respecto del encargo
+
+El encargo era "que el detalle arranque debajo de la altura medida de la pregunta". Bajar sólo el detalle **no basta**: bajado lo justo para librar una pregunta de dos líneas, sus propias dos líneas terminan en ~166 y se comen el `sí` de la 150.
+
+Y al capturar el antes/después en español -- que se pidió como control de no-regresión -- resultó que **el español también se encimaba**, sólo que menos: `cómo esté el disco.` terminaba justo encima de `sí`. El defecto nunca fue del ruso; el ruso sólo lo hacía obvio. Ver `m120-dialogo-es-before.png`.
+
+Así que la corrección no es mover un bloque sino **encadenar los tres**: cada uno devuelve su borde inferior y el siguiente arranca a `CONFIRM_BLOCK_GAP` (6 px) de él. Las respuestas ceden hacia abajo lo necesario y **no** se mueven cuando no hace falta (`max` con `CONFIRM_YES_Y`), que es el caso de todo diálogo sin detalle -- la mayoría. La relación pregunta/detalle no cambia en ningún idioma: con `MFONT_TITLE` a 28 px, una pregunta de una línea termina en 118 y los 6 px de hueco dejan el detalle en la misma Y=124 de siempre.
+
+El `178` literal del `"no"` pasa a `CONFIRM_ANSWER_PITCH` (28) sobre la Y del `"sí"`, porque dejó de servir en cuanto el `"sí"` puede bajar.
+
+### Verificado
+
+`m120-dialogo-{ru,es}-{before,after}.png`, mismo commit, misma secuencia de botones, reconstruyendo entre una y otra. En ruso desaparece el encimado grande; en español, el pequeño. Suite host en verde, simulador 0 errores.
+
+**Archivos**: `metro_widgets.c`. Ninguno de Rockbox fuera de `apps/metro/`.
+
+**Sin release**: irá con lo que salga del hardware.

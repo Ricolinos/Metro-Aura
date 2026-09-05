@@ -35,6 +35,9 @@
 #define CONFIRM_QUESTION_X 12
 #define CONFIRM_QUESTION_Y 90
 #define CONFIRM_YES_Y      150
+/* M-120: separacion entre "si" y "no" -- era el 178 literal del
+ * llamador, que dejo de servir cuando "si" puede bajar. */
+#define CONFIRM_ANSWER_PITCH 28
 
 /* M-093: the question used to be one line at MFONT_TITLE, which held
  * "¿cambiar a Aura y reiniciar?" but not "¿cambiar a moonlit.aura y
@@ -43,7 +46,12 @@
  * block still ends above "sí"/"no". Never more than two lines: every
  * question in the catalogue fits in two at 320 px, and a third would
  * run into the answers. */
-static void draw_question(const char *question)
+/* M-120: devuelve la Y donde TERMINA el bloque de la pregunta. El
+ * detalle arrancaba en una CONFIRM_DETAIL_Y fija calculada para una
+ * pregunta de UNA linea; en ruso "обновить библиотеку сейчас?" ocupa
+ * dos y el detalle se le encimaba (visible desde antes de M-118, no es
+ * efecto del dibujo por tramos). */
+static int draw_question(const char *question)
 {
     static char head[96];
     int w, h, max_w = LCD_WIDTH - 2 * CONFIRM_QUESTION_X;
@@ -55,7 +63,7 @@ static void draw_question(const char *question)
     {
         metro_draw_text(MFONT_TITLE, CONFIRM_QUESTION_X, CONFIRM_QUESTION_Y,
                          question, metro_color_fg());
-        return;
+        return CONFIRM_QUESTION_Y + h;
     }
 
     /* Longest head ending at a space that fits. */
@@ -77,7 +85,7 @@ static void draw_question(const char *question)
         /* No usable space: let the LCD clip it, as before. */
         metro_draw_text(MFONT_TITLE, CONFIRM_QUESTION_X, CONFIRM_QUESTION_Y,
                          question, metro_color_fg());
-        return;
+        return CONFIRM_QUESTION_Y + h;
     }
     memcpy(head, question, cut);
     head[cut] = '\0';
@@ -85,6 +93,7 @@ static void draw_question(const char *question)
                      head, metro_color_fg());
     metro_draw_text(MFONT_TITLE, CONFIRM_QUESTION_X, CONFIRM_QUESTION_Y + h / 2,
                      question + cut + 1, metro_color_fg());
+    return CONFIRM_QUESTION_Y + h / 2 + h;
 }
 
 /* M-100: linea de detalle bajo la pregunta, en caption. draw_question()
@@ -95,16 +104,25 @@ static void draw_question(const char *question)
  * Metro (titulo grande + caption), no una pregunta gigante. Se envuelve
  * a lo ancho por palabras y se topa en dos lineas propias, que es lo
  * que entra entre la pregunta y las respuestas. */
-#define CONFIRM_DETAIL_Y      124
+/* M-120: separacion vertical entre bloques. Con MFONT_TITLE a 28 px una
+ * pregunta de una sola linea termina en 90+28 = 118, asi que 6 px dejan
+ * el detalle en la misma Y=124 de antes -- la relacion pregunta/detalle
+ * no se mueve en ningun idioma.
+ *
+ * Lo que SI se mueve, y hacia abajo, son las respuestas cuando hay
+ * detalle de dos lineas: el encimado no era solo ruso. En espanol,
+ * "como este el disco." terminaba justo encima de "si" (comparar
+ * m120-dialogo-es-before/after.png). Un dialogo SIN detalle -- la
+ * mayoria -- se ve exactamente igual que en v0.7.2. */
+#define CONFIRM_BLOCK_GAP     6
 #define CONFIRM_DETAIL_LINES  2
 
-static void draw_detail(const char *detail)
+static int draw_detail(const char *detail, int y)
 {
     static char line[128];
     int max_w = LCD_WIDTH - 2 * CONFIRM_QUESTION_X;
     const char *p = detail;
     int drawn = 0;
-    int y = CONFIRM_DETAIL_Y;
     int lh;
 
     lcd_setfont(metro_font_id(MFONT_CAPTION));
@@ -129,7 +147,7 @@ static void draw_detail(const char *detail)
             {
                 metro_draw_text(MFONT_CAPTION, CONFIRM_QUESTION_X, y, line,
                                  metro_color_secondary());
-                return;
+                return y + lh;
             }
         }
 
@@ -159,7 +177,7 @@ static void draw_detail(const char *detail)
             line[len] = '\0';
             metro_draw_text(MFONT_CAPTION, CONFIRM_QUESTION_X, y, line,
                              metro_color_secondary());
-            return;
+            return y + lh;
         }
         memcpy(line, p, cut);
         line[cut] = '\0';
@@ -169,6 +187,7 @@ static void draw_detail(const char *detail)
         y += lh;
         drawn++;
     }
+    return y;
 }
 
 bool metro_widgets_confirm(const char *title, const char *question)
@@ -184,16 +203,28 @@ bool metro_widgets_confirm_detail(const char *title, const char *question,
     while (1)
     {
         int action;
+        int bottom, yes_y;
 
         metro_draw_clear();
         metro_draw_header(title);
-        draw_question(question);
+        /* M-120: los tres bloques se encadenan de arriba abajo en vez de
+         * vivir en Y fijas. Mover solo el detalle no bastaba -- bajado
+         * lo justo para no chocar con una pregunta de dos lineas, sus
+         * dos lineas propias se comian el "si". Las respuestas ceden
+         * hacia abajo lo necesario y NO se mueven cuando no hace falta
+         * (max con CONFIRM_YES_Y), que es el caso de los cinco idiomas
+         * latinos y de todo dialogo sin detalle. */
+        bottom = draw_question(question);
         if (detail)
-            draw_detail(detail);
-        metro_draw_text(sel_yes ? MFONT_LIST_SEL : MFONT_LIST, 12, CONFIRM_YES_Y,
+            bottom = draw_detail(detail, bottom + CONFIRM_BLOCK_GAP);
+        yes_y = bottom + CONFIRM_BLOCK_GAP;
+        if (yes_y < CONFIRM_YES_Y)
+            yes_y = CONFIRM_YES_Y;
+        metro_draw_text(sel_yes ? MFONT_LIST_SEL : MFONT_LIST, 12, yes_y,
                          metro_lang_str(LANG_DIALOG_YES),
                          sel_yes ? metro_color_fg() : metro_color_secondary());
-        metro_draw_text(!sel_yes ? MFONT_LIST_SEL : MFONT_LIST, 12, 178,
+        metro_draw_text(!sel_yes ? MFONT_LIST_SEL : MFONT_LIST, 12,
+                         yes_y + CONFIRM_ANSWER_PITCH,
                          metro_lang_str(LANG_DIALOG_NO),
                          !sel_yes ? metro_color_fg() : metro_color_secondary());
         lcd_update();
