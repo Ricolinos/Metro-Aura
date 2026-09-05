@@ -28,6 +28,7 @@
 #include "string-extra.h"
 #include "metadata.h" /* get_metadata() -- R3-F4/DD-5 */
 #include "debug.h"    /* DEBUGF -- M-097: every JPEG decode is logged in the sim */
+#include "kernel.h"   /* current_tick/HZ -- M-122: se cronometra el decode directo */
 
 #include "metro_albumart.h"
 #include "metro_draw.h" /* METRO_TILE_SIZE */
@@ -72,6 +73,11 @@ static bool s_loaded = false;
 static unsigned char s_bg_scratch[METRO_ALBUMART_BG_SCRATCH_SIZE];
 static char s_bg_loaded_path[MAX_PATH];
 static bool s_bg_loaded = false;
+/* M-122: la cache-de-1 se clava a ruta + mtime, no solo a la ruta. Una
+ * foto de artista REEMPLAZADA por Aura Studio conserva su nombre de
+ * archivo, asi que con la ruta sola el fondo viejo sobrevivia a la
+ * sincronizacion hasta cambiar de artista y volver. */
+static long s_bg_loaded_mtime = 0;
 
 #define ALBUMS_SUBDIR  "albums"
 #define ARTISTS_SUBDIR "artists"
@@ -107,6 +113,108 @@ static bool decode_file_into(const char *art_path, unsigned char *scratch,
     if (bm_out)
         *bm_out = bm;
     return true;
+}
+
+/* M-122 (contrato v20): dimensiones NATURALES del archivo sin
+ * decodificar un solo pixel. Sin FORMAT_RESIZE el decodificador
+ * rellena bm.width/height con el tamano real del JPEG
+ * (apps/recorder/jpeg_load.c), y FORMAT_RETURN_SIZE lo hace volver
+ * en cuanto termina de leer la cabecera, sin decodificar.
+ *
+ * `maxsize` NO puede ir en 0, aunque apps/misc.c lo haga: ese llamador
+ * mide un BMP. En la ruta JPEG de esta build (sin JPEG_FROM_MEM)
+ * clip_jpeg_fd() usa `bm->data` como espacio para su PROPIA `struct
+ * jpeg` y devuelve -1 de entrada si `maxsize < sizeof(struct jpeg)`.
+ * Con 0 fallaba siempre y el camino directo no se tomaba nunca --
+ * silenciosamente, porque el llamador cae a la maestra, que funciona.
+ * Se le pasa s_scratch entero; el lock de maestras que sostiene el
+ * llamador es el que hace seguro usarlo aqui. */
+static bool image_natural_size(const char *path, int *w, int *h)
+{
+    struct bitmap bm;
+    size_t len = strlen(path);
+    int ret;
+
+    memset(&bm, 0, sizeof(bm));
+    bm.data = s_scratch;
+    if (len > 4 && !strcasecmp(path + len - 4, ".bmp"))
+        ret = read_bmp_file(path, &bm, sizeof(s_scratch),
+                            FORMAT_NATIVE | FORMAT_RETURN_SIZE, NULL);
+    else
+        ret = read_jpeg_file(path, &bm, sizeof(s_scratch),
+                             FORMAT_NATIVE | FORMAT_RETURN_SIZE, NULL);
+    if (ret <= 0 || bm.width <= 0 || bm.height <= 0)
+        return false;
+    *w = bm.width;
+    *h = bm.height;
+    return true;
+}
+
+/* M-122: el fondo de Ahora Suena DIRECTO desde el archivo, sin pasar
+ * por la maestra de 130.
+ *
+ * El problema: el fondo se dibuja a 320x240 y salia de agrandar la
+ * maestra de artista (130 px, fuente de 128 como maximo hasta el
+ * contrato v19) -- un factor de 2.46x, y se veia borroso. Con las
+ * fotos de artista a 320x320 (contrato v20) la fuente ya tiene los
+ * pixeles que hacen falta; lo unico que sobraba era la escala
+ * intermedia.
+ *
+ * Geometria: se decodifica con KEEP_ASPECT dentro de una caja
+ * LCD_WIDTH x LCD_WIDTH, asi que una fuente cuadrada de 320 sale
+ * 320x320 EXACTA (sin remuestreo) y una 4:3 sale 320x240 exacta. De
+ * ahi al fondo solo hay que quitar filas de arriba y abajo: es el
+ * mismo "llenar y recortar centrado" que hace metro_master_art_cover()
+ * -- con sw == dw el paso le queda en 1.0 y el recorte en vertical --
+ * pero hecho aqui a mano con un memmove, porque origen y destino son
+ * EL MISMO buffer y no se puede pedirle a una funcion de escalado
+ * general que sea segura solapandose.
+ *
+ * Un solo buffer porque no cabe otro: s_bg_scratch son 307,200 B y el
+ * bitmap de 320x320 se lleva 204,800 mas el margen del decodificador.
+ * El destino final (320x240) vive en el mismo sitio, y el memmove va
+ * hacia atras (fila destino oy <- fila origen oy+recorte), asi que
+ * nunca pisa datos sin leer.
+ *
+ * Devuelve false -- y el llamador cae al camino de la maestra, que
+ * sigue siendo correcto -- si la imagen decodificada no llena el
+ * ancho o no da el alto: un retrato o un panoramico muy ancho no se
+ * pueden recortar sin agrandar, y agrandar aqui no ganaria nada sobre
+ * el camino de siempre. */
+static bool decode_bg_direct(const char *path)
+{
+    struct bitmap bm;
+    int crop_rows;
+    fb_data *buf = (fb_data *)s_bg_scratch;
+
+    if (!decode_file_into(path, s_bg_scratch, sizeof(s_bg_scratch),
+                          LCD_WIDTH, LCD_WIDTH,
+                          FORMAT_NATIVE | FORMAT_RESIZE | FORMAT_KEEP_ASPECT, &bm))
+        return false;
+    if (bm.width != LCD_WIDTH || bm.height < LCD_HEIGHT)
+        return false;
+
+    crop_rows = (bm.height - LCD_HEIGHT) / 2;
+    if (crop_rows > 0)
+        memmove(buf, buf + (size_t)crop_rows * LCD_WIDTH,
+                (size_t)LCD_WIDTH * LCD_HEIGHT * sizeof(fb_data));
+    return true;
+}
+
+/* M-122: el mismo decode, cronometrado. Se deja permanente (DEBUGF solo
+ * existe en el simulador) por el mismo motivo que el DEBUGF de cada
+ * decode en decode_file_into(): este camino corre FUERA del bucle de
+ * animacion pero dentro del cuadro que dibuja Ahora Suena al cambiar de
+ * pista, asi que cuanto tarda es justo lo que hay que poder volver a
+ * medir sin recompilar. */
+static bool decode_bg_direct_timed(const char *path)
+{
+    long t0 = current_tick;
+    bool ok = decode_bg_direct(path);
+
+    DEBUGF("metro_art: bg directo %s en %ld ticks (HZ=%d) -> %s\n",
+           path, current_tick - t0, (int)HZ, ok ? "ok" : "fallo");
+    return ok;
 }
 
 static bool decode_embedded_into(struct mp3entry *id3, unsigned char *scratch,
@@ -271,6 +379,10 @@ bool metro_albumart_load_background(void)
     }
 
     strlcpy(s_bg_loaded_path, id3->path, sizeof(s_bg_loaded_path));
+    /* M-122: este camino se clava a la ruta de la PISTA, que no tiene
+     * mtime en la clave -- se pone en 0 para no dejar el de una foto de
+     * artista anterior en una cache que las dos funciones comparten. */
+    s_bg_loaded_mtime = 0;
     s_bg_loaded = true;
     return true;
 }
@@ -306,7 +418,8 @@ bool metro_albumart_load_background_file(const char *path, long mtime)
      * de origen y no al track: así una foto de artista y una carátula
      * nunca se confunden entre sí, y volver a la misma pista con la
      * misma fuente no vuelve a decodificar. */
-    if (s_bg_loaded && !strcmp(s_bg_loaded_path, path))
+    if (s_bg_loaded && s_bg_loaded_mtime == mtime &&
+        !strcmp(s_bg_loaded_path, path))
         return true;
 
     metro_master_art_lock();
@@ -320,6 +433,27 @@ bool metro_albumart_load_background_file(const char *path, long mtime)
         char key[METRO_MASTER_ART_KEY_LEN];
         fb_data *master = metro_master_art_scratch();
         const int px = METRO_MASTER_ART_ARTIST_PX;
+        int nw, nh;
+
+        /* M-122 (contrato v20): si la fuente trae MAS pixeles que la
+         * maestra, el fondo se decodifica directo a tamano de pantalla
+         * y la maestra no se toca -- la escribe igual el constructor de
+         * fondo (metro_master_art_builder.c, build_artists()), que es
+         * quien la necesita para los tiles. Con una fuente de 128 (o
+         * cualquier biblioteca anterior a v20) no hay nada que ganar y
+         * se sigue por el camino de siempre, que ademas aprovecha la
+         * maestra ya escrita: una lectura de 34 KB en vez de un
+         * decode. */
+        if (image_natural_size(path, &nw, &nh) &&
+            (nw > px || nh > px) &&
+            decode_bg_direct_timed(path))
+        {
+            metro_master_art_unlock();
+            strlcpy(s_bg_loaded_path, path, sizeof(s_bg_loaded_path));
+            s_bg_loaded_mtime = mtime;
+            s_bg_loaded = true;
+            return true;
+        }
 
         metro_music_artist_image_master_key(strrchr(path, '/') ? strrchr(path, '/') + 1 : path,
                                             mtime, key, sizeof(key));
@@ -372,10 +506,12 @@ bool metro_albumart_load_background_file(const char *path, long mtime)
     {
         s_bg_loaded = false;
         s_bg_loaded_path[0] = '\0';
+        s_bg_loaded_mtime = 0;
         return false;
     }
 
     strlcpy(s_bg_loaded_path, path, sizeof(s_bg_loaded_path));
+    s_bg_loaded_mtime = mtime;
     s_bg_loaded = true;
     return true;
 }

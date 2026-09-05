@@ -4363,3 +4363,54 @@ Dos detalles de captura que costaron un intento cada uno:
 **Archivos**: `README.md` (reescrito), `docs/readme/` (16 PNG nuevos), `gen_test_media.sh` (nombres sintéticos, ya commiteado aparte).
 
 **No es un release**: la publicación de v0.7.2 ya ocurrió; esto es documentación sobre el mismo código.
+
+## M-122 — El fondo de Ahora Suena dejaba de agrandar la maestra de 130 y decodifica la fuente de 320
+
+Encargo del dueño para v0.7.3, sobre el contrato **v20** (lo escribe Aura): las fotos de artista pasan de 128 a **320×320**; la maestra de artistas se queda en 130 para los tiles.
+
+### El error
+
+El fondo de Ahora Suena se dibuja a 320×240 pero salía de agrandar la maestra de artista de 130 px (`upscale_master_to_bg()`, bilineal) -- un factor de **2.46×**. Con la fuente topada en 128 px eso era lo mejor posible y así se documentó en M-097. Con fuentes de 320 la escala intermedia ya no aporta nada: tira pixeles que el archivo sí tiene.
+
+### La corrección
+
+Camino nuevo en `metro_albumart_load_background_file()`: si la fuente mide **más** que la maestra (`> METRO_MASTER_ART_ARTIST_PX`), se decodifica directo y la maestra ni se toca -- la sigue escribiendo el constructor de fondo (`build_artists()`), que es quien la necesita para los tiles. Con una fuente de 128 (cualquier biblioteca anterior a v20) no hay nada que ganar y se sigue por el camino de siempre, que además aprovecha la maestra ya escrita: una lectura de 34 KB en vez de un decode.
+
+Geometría: se decodifica con `KEEP_ASPECT` en una caja `LCD_WIDTH × LCD_WIDTH`, así que una fuente cuadrada de 320 sale **320×320 exacta, sin remuestreo**, y una 4:3 sale 320×240 exacta. De ahí al fondo sólo hay que quitar filas arriba y abajo -- el mismo "llenar y recortar centrado" de `metro_master_art_cover()` (con `sw == dw` su paso queda en 1.0 y el recorte es puramente vertical), pero hecho a mano con un `memmove`, porque origen y destino son **el mismo buffer** y no se le puede pedir a una función de escalado general que sea segura solapándose. Un solo buffer porque no cabe otro: `s_bg_scratch` son 307,200 B y el bitmap de 320×320 se lleva 204,800 más el margen del decodificador.
+
+Si la imagen decodificada no llena el ancho o no da el alto (un retrato, un panorámico muy ancho) devuelve `false` y el llamador cae al camino de la maestra, que sigue siendo correcto. No se intenta agrandar aquí: no ganaría nada sobre el camino de siempre.
+
+La caché-de-1 pasa a clavarse a **ruta + mtime**, no sólo a la ruta: una foto reemplazada por Aura Studio conserva su nombre, así que con la ruta sola el fondo viejo sobrevivía a la sincronización hasta cambiar de artista y volver.
+
+### La trampa que costó el primer intento
+
+`image_natural_size()` pregunta las dimensiones sin decodificar, con `FORMAT_RETURN_SIZE` y sin `FORMAT_RESIZE`. Se escribió pasando `maxsize = 0`, copiando el único llamador que hay en el árbol (`apps/misc.c`) -- **y siempre devolvía -1**. Ese llamador mide un BMP; en la ruta JPEG de esta build (sin `JPEG_FROM_MEM`) `clip_jpeg_fd()` usa `bm->data` como espacio para su **propia** `struct jpeg` y devuelve -1 de entrada si `maxsize < sizeof(struct jpeg)`.
+
+Lo peligroso es cómo fallaba: en silencio. El llamador cae a la maestra, que funciona, así que la pantalla se veía **bien** -- sólo que igual de borrosa que antes. Se cazó porque el `DEBUGF` del camino directo no aparecía en el log, no porque nada se viera mal. Se le pasa `s_scratch` entero; el lock de maestras que ya sostiene el llamador es lo que hace seguro usarlo ahí.
+
+### Medición
+
+Simulador, tres corridas consecutivas, misma secuencia:
+
+| camino | fuente | coste |
+|---|---|---|
+| directo (M-122) | 320×320 | **6 ticks ≈ 60 ms** |
+| maestra (M-097), ya escrita en disco | 128×128 | 2 ticks ≈ 20 ms |
+
+Unas tres veces más caro, **una vez por cambio de artista**, fuera del bucle de animación y bajo el mismo lock que ya usaba el fondo. El cronómetro (`DEBUGF` con `current_tick`) se deja permanente, por el mismo motivo que el `DEBUGF` de cada decode: es lo que hay que poder volver a medir sin recompilar.
+
+**Advertencia honesta**: esos 60 ms son de un Mac, no de un iPod 6G. Un decode de 320×320 en el ARM del aparato costará bastante más, y además el camino directo **no tiene caché en disco** -- alternar entre dos artistas paga el decode cada vez, mientras que el de la maestra se amortiza tras el primero. Es el intercambio que pide el encargo (nitidez por tiempo), pero el número que importa sale del hardware, no de aquí. Va a la lista de verificación.
+
+### Verificado
+
+`m122-nowplaying-bg-{before,after}.png` y el par `-zoom-` (recorte de la franja inferior, ×2): **17.0 % de los pixeles cambian**, diferencia media 3.69/canal. Se ve poco a simple vista y mucho en el recorte -- el fondo se compone al 30 % de opacidad (`METRO_NP_BG_ALPHA256`), que es lo que amortigua la diferencia; el detalle fino que antes era una mancha vuelve a leerse como bandas.
+
+Fixture nuevo: `aura-test-combo.jpg` pasa a 320×320 **con patrón** (`testsrc`), no color plano -- un rectángulo de un solo color se ve idéntico agrandado desde 130 que decodificado a 320, así que no probaría nada. Las otras dos fotos se quedan en 128 a propósito: son la biblioteca "vieja" que tiene que seguir cayendo al camino de la maestra (verificado: `metro-qa.jpg` lo toma).
+
+De paso, `gen_test_media.sh` borra `.rockbox/aura/artists/` antes de copiar. Sin eso sobrevivían fotos de corridas anteriores con nombres de fixtures ya renombrados (se encontraron dos) -- justo lo que confunde una medición de "de qué tamaño es la fuente".
+
+Build de destino y simulador con 0 errores; `stack_report` OK (peor camino 4872 B, 39.6 %); suite host en verde.
+
+**Archivos**: `metro_albumart.c`, `gen_test_media.sh`. Ninguno de Rockbox fuera de `apps/metro/`.
+
+**Sin release**: se agrupa con M-117…M-121 en `v0.7.3`, a la confirmación del dueño.

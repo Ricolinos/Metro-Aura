@@ -264,7 +264,18 @@ mkdir -p "$OUT_DIR/aura/artists"
 # prueba que un tag con ':' se resuelve por su valor completo, no solo
 # hasta el primer ':'.
 gen_cover_jpg "0x6B4EFF" "128x128" "$OUT_DIR/aura/artists/metro-qa.jpg"
-gen_cover_jpg "0x2E8B57" "128x128" "$OUT_DIR/aura/artists/aura-test-combo.jpg"
+# M-122 (contrato v20): las fotos de artista pasan a 320x320. Esta va
+# con PATRON, no color plano, por dos motivos: un rectangulo de un solo
+# color se ve identico agrandado desde 130 que decodificado a 320, asi
+# que no probaria nada; y el fondo de Ahora Suena se dibuja al 30 % de
+# opacidad, donde solo el detalle fino delata la diferencia. Las otras
+# dos fotos se quedan en 128 A PROPOSITO: son la biblioteca "vieja" que
+# tiene que seguir cayendo al camino de la maestra.
+ffmpeg -y -loglevel error -f lavfi -i "testsrc=size=320x320:rate=1" \
+  -frames:v 1 "$OUT_DIR/aura/artists/aura-test-combo.png"
+sips -s format jpeg "$OUT_DIR/aura/artists/aura-test-combo.png" \
+  --out "$OUT_DIR/aura/artists/aura-test-combo.jpg" > /dev/null
+rm -f "$OUT_DIR/aura/artists/aura-test-combo.png"
 gen_cover_jpg "0xE0A030" "128x128" "$OUT_DIR/aura/artists/dj-twist.jpg"
 cat > "$OUT_DIR/aura/artist_images.cfg" <<'EOF'
 # artist_images.cfg v1 (CONTRATO-firmware-studio.md SS D.3)
@@ -442,6 +453,12 @@ if [[ -d "$SIMDISK" ]]; then
     # R3-F3/DD-6: solo tiene sentido junto con la biblioteca musical
     # (los tags de artista tienen que existir para que haya algo que
     # emparejar) -- mismo gate que Music/Playlists arriba.
+    # M-122: se BORRA antes de copiar. Sin esto, una foto de artista de
+    # una corrida anterior sobrevivia con su nombre viejo (se encontraron
+    # dos, de fixtures ya renombrados) y quedaba en el simdisk sin que
+    # ningun bloque del script la genere -- justo lo que confunde una
+    # medicion de "de que tamano es la fuente".
+    rm -rf "$SIMDISK/.rockbox/aura/artists"
     mkdir -p "$SIMDISK/.rockbox/aura/artists"
     cp "$OUT_DIR"/aura/artist_images.cfg "$SIMDISK/.rockbox/aura/"
     cp "$OUT_DIR"/aura/artists/*.jpg "$SIMDISK/.rockbox/aura/artists/"
