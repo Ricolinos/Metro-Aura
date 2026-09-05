@@ -4332,3 +4332,33 @@ El `178` literal del `"no"` pasa a `CONFIRM_ANSWER_PITCH` (28) sobre la Y del `"
 **Archivos**: `metro_widgets.c`. Ninguno de Rockbox fuera de `apps/metro/`.
 
 **Sin release**: irá con lo que salga del hardware.
+
+## M-121 — README público en inglés, y los fixtures dejan de citar nombres reales
+
+Ejecuta §A y §B de `docs/plans/PLAN-publicacion-repos-publicos.md`. Los cuatro repos ya son públicos, así que el README pasa a ser la cara del proyecto y va en un solo idioma: inglés.
+
+### Fixtures: dos nombres reales que iban a salir en las capturas
+
+Aviso relevado de Aura-Firmware (D-359: a su simdisk se le habían colado fotos y portadas reales con copyright de rondas anteriores). Auditado aquí:
+
+- **Las imágenes están limpias.** Todas se generan con `ffmpeg -f lavfi` (colores planos y `testsrc`) o `sips`. Ninguna foto ni portada real. El consejo de generar los JPEG con Pillow en vez de ffmpeg (D-303, el decodificador liviano de Rockbox los pinta gris) ya estaba resuelto aquí desde F5 por otra vía, documentada en el propio `gen_test_media.sh`: el JPEG sale de `sips`, no del codificador mjpeg de ffmpeg.
+- **Los nombres no lo estaban.** Dos fixtures citaban gente real: una banda viva (artista/álbum/pista) y un compositor real con una obra real. Sustituidos por nombres inventados que conservan **exactamente** lo que cada fixture prueba -- la e con tilde bajo `metro_lang_upper()` y los 20 s de duración en uno; la ё (U+0451) en el otro, cuya mayúscula Ё fuerza el intercambio de byte líder (0xD1 → 0xD0) que ninguna otra cadena cirílica del catálogo ejercita. Las dos carpetas quedan en ASCII (`LangFixtureES`, `LangFixtureRU`), lo que además generaliza el rodeo de D-357 que sólo tenía una de ellas.
+
+El simdisk se borró y se regeneró entero desde el script, para que nada de rondas anteriores sobreviviera a las capturas.
+
+**Tres `rockboxui` colgados** aparecieron en el `pgrep` previo a capturar -- la regla del plan ("`pgrep -fl rockboxui` antes de confiar en una captura") se ganó el sueldo antes de la primera foto. Muertos antes de empezar.
+
+### El README
+
+184 líneas, en inglés, con la estructura de §B y el bloque legal de §A literal. Se conserva traducido lo que seguía siendo cierto y se quita lo que no: el anterior anunciaba "v0.3.0" y "idioma ES/EN" cuando hoy van seis idiomas y v0.7.2.
+
+16 capturas del simulador en `docs/readme/`, 320×240 escaladas ×2 a 640×480 con vecino más cercano (Pillow, `Image.NEAREST` -- un remuestreo suave convertiría una fuente de mapa de bits en una mancha). Cubren lo que pide el plan: arranque, menú raíz, artistas, álbumes con carátula, lista de pistas, Ahora Suena, fotos (cuadrícula y visor), ajustes, pantalla, tema claro, bloqueo, acerca de, avisos legales, ruso y cambio de sistema.
+
+Dos detalles de captura que costaron un intento cada uno:
+
+- La primera Ahora Suena salió **a mitad de la transición**, con la lista anterior todavía visible detrás. Las pistas de fixture duran 2 s (200 ticks a HZ=100), así que la ventana entre "la transición terminó" y "la pista terminó" es estrecha; se resolvió usando la pista de 20 s.
+- La primera del visor de fotos salió como un rectángulo de color plano: correcta, e inútil. Se cambió por `landscape-large.jpg` (640×300, patrón `testsrc`), que sí muestra lo que el visor hace -- las franjas de "ajustar" arriba y abajo.
+
+**Archivos**: `README.md` (reescrito), `docs/readme/` (16 PNG nuevos), `gen_test_media.sh` (nombres sintéticos, ya commiteado aparte).
+
+**No es un release**: la publicación de v0.7.2 ya ocurrió; esto es documentación sobre el mismo código.

@@ -1,91 +1,184 @@
 # Metro-Aura
 
-Firmware para iPod Classic 6G (fork de [Rockbox](https://www.rockbox.org/))
-que homenajea el design system Metro de Microsoft: el esqueleto de
-navegación "twist" del Zune 30 (listas verticales + movimiento
-horizontal entre pivots, pensado para input no táctil) con el lenguaje
-visual del Zune HD (tipografía dominante, tiles, colores planos), hasta
-donde el hardware del 6G lo permite (pantalla 320×240, 64 MB RAM, ARM
-sin GPU, clickwheel).
+A Zune-flavoured firmware for the iPod Classic 6G — the Zune that Microsoft never built for Apple's hardware.
 
-Es "el Zune que Microsoft habría diseñado para el iPod".
+`latest release: v0.7.2` · `GPL v2` · `iPod Classic 6G`
 
-## Qué trae (v0.3.0)
+## What it is
 
-Navegación twist completa, música sobre tagcache (artistas/álbumes/
-canciones/géneros/playlists) con Now Playing y carátula real, video y
-fotos con miniaturas y visor propio, ajustes reales (tema, 10 acentos,
-idioma ES/EN, brillo, EQ, temporizador de sueño, candado de pantalla),
-y un motor de transiciones propio (twist, turnstile, fade, feather,
-continuum) con tres niveles de FX.
+Metro-Aura is a fork of [Rockbox](https://www.rockbox.org) that replaces the
+whole interface with Microsoft's Metro design language. It takes the Zune 30's
+"twist" navigation skeleton — vertical lists with horizontal movement between
+pivots, designed for hardware buttons rather than touch — and dresses it in the
+Zune HD's visual language: dominant typography, flat colour, tiles, no chrome.
 
-De la ronda 3: **letras `.lrc` sincronizadas**, **fotos de artista**,
-**Quickplay** (álbumes recientes), **calificaciones** importadas de
-Aura Studio, **candado de 4 dígitos** y **CONTINUUM** (el título de la
-fila vuela a la página nueva).
+Every screen is drawn by this firmware. Rockbox's menus, list engine, file
+browser and skin engine are not used anywhere in the UI.
 
-De la ronda 4, tras el primer flasheo real: **iconografía Fluent**,
-**PLAY desde cualquier pantalla**, **indicador de reproducción/pausa**,
-**cuadrícula de álbumes**, **fondo del reproductor separado del tile**,
-y el catálogo español **con acentos de verdad**. Detalle completo en
-`docs/ESTADO_FINAL.md`.
+It runs within what the 6G actually has: a 320×240 screen, 64 MB of RAM, an ARM
+CPU with no GPU, and a clickwheel.
 
-> **Verificado en el simulador SDL.** El aparato real se flasheó por
-> primera vez en la ronda 4 — de ahí salieron las correcciones de esa
-> ronda — pero la lista de verificación en hardware sigue sin
-> responder. Está en `docs/ESTADO_FINAL.md`.
+## Install
 
-## Capturas
+Install it with **[Aura Studio](https://github.com/Ricolinos/Aura-Studio)**, the
+desktop app that flashes the firmware and syncs your library. It handles the DFU
+steps, the bootloader and dual-boot, so you never need a terminal.
 
-Simulador SDL, tema oscuro (acento magenta, el default — `DECISIONS.md`
-M-020) y tema claro lado a lado. Matriz completa (2 temas × 3 acentos)
-en `docs/screenshots/F10-matrix/`, generada con `firmware/tools/sim_matrix.sh`.
+## Highlights
 
-| | Oscuro | Claro |
-|---|---|---|
-| Hub | ![hub oscuro](docs/screenshots/F10-matrix/dark-magenta-hub.png) | ![hub claro](docs/screenshots/F10-matrix/light-magenta-hub.png) |
-| Lista | ![lista oscura](docs/screenshots/F10-matrix/dark-magenta-list.png) | ![lista clara](docs/screenshots/F10-matrix/light-magenta-list.png) |
-| Now Playing | ![now playing oscuro](docs/screenshots/F10-matrix/dark-magenta-nowplaying.png) | ![now playing claro](docs/screenshots/F10-matrix/light-magenta-nowplaying.png) |
+<img src="docs/readme/splash.png" width="480" alt="Boot screen">
 
-## Compatibilidad con Aura Studio
+The boot screen: wordmark first, everything else after.
 
-Este firmware es 100% compatible con
-[Aura Studio](https://github.com/Ricolinos/Aura-Studio) (la app de
-escritorio que sincroniza biblioteca/fotos/videos al dispositivo):
-misma estructura de directorios, tagcache, formatos y marcador de
-sincronización — ver `docs/COMPAT_STUDIO.md` (checklist vivo) y
-`Aura-Firmware/CONTRATO-firmware-studio.md`/`docs/contracts/library-layout-v1.md`
-(fuente del contrato).
+<img src="docs/readme/hub.png" width="480" alt="Root menu">
 
-**Advertencia**: si tienes Aura Studio instalado con el firmware de
-Aura embebido, el chequeo de actualización comparará hashes y puede
-ofrecer "actualizar" tu iPod con Metro de vuelta a Aura — ver
-`DECISIONS.md` M-004 y `docs/ESTADO_FINAL.md`.
+The root menu. Type is the interface — no icons, no boxes, no gradients.
 
-## Compilar
+<img src="docs/readme/artists.png" width="480" alt="Artist grid">
 
-Ver `docs/guia-desarrollo.md`. Resumen:
+Artists as a grid of tiles. An artist without a photo gets an accent tile with
+their initial, in any alphabet.
+
+<img src="docs/readme/albums.png" width="480" alt="Album grid with cover art">
+
+Albums, with real cover art read from your library. Pivots ("albums", "songs",
+"genres") scroll horizontally with the wheel.
+
+<img src="docs/readme/songs.png" width="480" alt="Track list">
+
+A track list. The selected row scrolls its title if it does not fit; the others
+are clipped, so only one thing moves at a time.
+
+<img src="docs/readme/nowplaying.png" width="480" alt="Now Playing">
+
+Now Playing, with the album cover as a tile and the artist's photo behind it.
+
+<img src="docs/readme/photos-grid.png" width="480" alt="Photo grid">
+
+Photos, in a grid of cached thumbnails, filtered by the categories you set in
+Aura Studio.
+
+<img src="docs/readme/photo-viewer.png" width="480" alt="Photo viewer">
+
+The photo viewer, with fit and fill modes. Spinning the wheel moves through the
+album continuously.
+
+<img src="docs/readme/settings.png" width="480" alt="Settings">
+
+Settings, as pivots rather than nested menus.
+
+<img src="docs/readme/display.png" width="480" alt="Display settings">
+
+Two themes and ten accent colours.
+
+<img src="docs/readme/light-theme.png" width="480" alt="Light theme">
+
+The same album grid in the light theme.
+
+<img src="docs/readme/lock.png" width="480" alt="Screen lock">
+
+A four-digit screen lock, entered with the wheel and armed by the Hold switch.
+
+<img src="docs/readme/russian.png" width="480" alt="Russian interface">
+
+Six languages, including Russian — the Cyrillic is drawn from a separate font,
+mixed into the same line as the Latin text.
+
+<img src="docs/readme/about.png" width="480" alt="About screen">
+
+About, with the sync state and the build it came from.
+
+<img src="docs/readme/legal.png" width="480" alt="Legal notices">
+
+The licence, readable on the device itself.
+
+<img src="docs/readme/switch.png" width="480" alt="Switch system">
+
+Switching to a sister firmware, from Settings.
+
+> All screenshots are from the SDL simulator, scaled ×2 with nearest-neighbour.
+> Every album, artist, track and photo in them is a synthetic test fixture
+> generated by `firmware/tools/gen_test_media.sh`.
+
+## Features
+
+- **Six languages** — Spanish, English, French, German, Russian and Italian,
+  switchable on the device.
+- **Music over tagcache** — artists, albums, songs, genres and playlists, with
+  real cover art, artist photos, ratings and synchronised `.lrc` lyrics.
+- **Photos and video** — cached thumbnails, a custom viewer with fit/fill, and
+  categories defined in Aura Studio.
+- **Two themes, ten accents** — plus brightness, backlight timeout, sleep timer,
+  auto power off, equalizer, volume limit and clicker.
+- **Screen lock** — a four-digit code armed by the Hold switch.
+- **Settings shared between firmware families** — language, brightness, volume
+  limit, ReplayGain and lock travel with you when you switch firmware.
+- **Selective updates** — Aura Studio compares checksums and sends only the
+  files that actually changed.
+- **A shared cover-art cache** — decoded once, in the background, and reused by
+  every screen that needs it.
+- **Its own transition engine** — twist, turnstile, fade, feather and continuum,
+  at three levels of effect, including off.
+
+## Sister firmwares
+
+Metro-Aura is one of three firmwares that share the same library format and the
+same settings file, so you can move between them without resyncing:
+
+- **[Aura](https://github.com/Ricolinos/Aura-Firmware)** — the original.
+- **[moonlit.aura](https://github.com/Ricolinos/moonlit-aura)** — a quieter,
+  nocturnal take.
+
+Switch from **Settings › switch system**.
+
+## Roadmap
+
+- **Japanese** — kana and jōyō kanji, which need a glyph cache rather than the
+  dense font tables the current languages use.
+- **More languages**, once that cache exists.
+- The open hardware-verification items in `DECISIONS.md`.
+
+## Building from source
+
+See `docs/guia-desarrollo.md`. In short:
 
 ```bash
-firmware/tools/build_toolchain.sh   # una sola vez, ~unos minutos
-firmware/tools/build_sim.sh --run   # simulador SDL, día a día
-firmware/tools/build_target.sh      # target real ipod6g + bootloader
+firmware/tools/build_toolchain.sh   # once
+firmware/tools/build_sim.sh --run   # SDL simulator, day to day
+firmware/tools/build_target.sh      # real ipod6g target + bootloader
+firmware/tools/package_dist.sh      # release artefacts
 ```
 
-## Instalar
+Flashing by hand is documented in `docs/GUIA_FLASHEO.md`, but Aura Studio is the
+supported path.
 
-Ver `docs/GUIA_FLASHEO.md` — procedimiento completo con `mks5lboot`,
-requisitos, y qué hacer si algo sale mal.
+## Contributing and decisions
 
-## Estado del proyecto
+`DECISIONS.md` is the logbook: every decision, why it was made, what it cost and
+what was measured. It is the source of truth — the plans under `docs/plans/` are
+not. `MODIFICATIONS.md` lists every change to a Rockbox file outside
+`apps/metro/`, as GPL v2 §2a requires.
 
-`docs/ESTADO_FINAL.md` es el estado actual (v0.3.0) y la lista de
-verificación en hardware pendiente. Los planes de cada ronda están en
-`docs/plans/`, las desviaciones respecto a ellos en
-`docs/DESVIACIONES.md`, y la fuente de verdad de las decisiones en
-`DECISIONS.md`.
+The project documentation is written in Spanish; the code, its comments and the
+commit messages are in English.
 
-## Licencia
+## License, credits and trademarks
 
-GPL v2 (heredada de Rockbox) — ver `LICENSE`. Avisos de modificación
-en `MODIFICATIONS.md`.
+This project is free and open source. The firmware is a fork of
+[Rockbox](https://www.rockbox.org) and is released under the GNU General
+Public License v2 (see `LICENSE`, `MODIFICATIONS.md` and
+`THIRD-PARTY-NOTICES.txt`). Aura Studio is distributed free of charge.
+
+Created and maintained by **Ricolinos**. Rockbox is the work of the Rockbox
+community; this project is not affiliated with, endorsed by, or sponsored by
+Rockbox, Apple Inc., Microsoft Corporation or moonlit.market.
+
+iPod is a trademark of Apple Inc. Zune, Metro and Windows are trademarks of
+Microsoft Corporation. The visual languages of these firmwares are original
+interpretations inspired by those designs; they include no proprietary assets
+(no SF Pro, SF Symbols, Segoe UI or other proprietary fonts or icons).
+Fonts and icons used are licensed under the SIL Open Font License or MIT and
+are credited in `THIRD-PARTY-NOTICES.txt`.
+
+Provided "as is", without warranty of any kind. Flashing firmware to a device
+is done at your own risk.
