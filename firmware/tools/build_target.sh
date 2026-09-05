@@ -86,8 +86,24 @@ build_one() {
   echo "==> Regenerando la base de dependencias ($dir, make dep, D-348)"
   PATH="$TC_BIN:$PATH" make dep
 
+  # Metro (M-119): el BOOTLOADER no lleva la version del firmware.
+  # package_dist.sh pasa VERSION=<hash>-<fecha>, y la pantalla de
+  # arranque de M-107 (bootloader/ipod-s5l87xx.c) la imprime via
+  # `rbversion` -- asi que cada release producia un bootloader distinto
+  # aunque no se hubiera tocado una sola linea de bootloader/. Studio
+  # compara el SHA-256 del asset para decidir si ofrece "Actualizar el
+  # arranque" (ST-143), asi que eso era un DFU innecesario en cada
+  # actualizacion de firmware. Su version sale ahora de
+  # firmware/BOOT_VERSION, que se sube A MANO cuando se toca el
+  # bootloader -- que es justo cuando el usuario si tiene que reflashear.
+  local build_version="${VERSION:-}"
+  if [[ "$type" == "B" ]]; then
+    build_version="$(tr -d ' \t\n\r' < "$ROOT_DIR/firmware/BOOT_VERSION")"
+    echo "==> Version del bootloader: $build_version (firmware/BOOT_VERSION, M-119)"
+  fi
+
   echo "==> Compilando $dir"
-  PATH="$TC_BIN:$PATH" make -j"$(sysctl -n hw.ncpu)" ${VERSION:+VERSION="$VERSION"}
+  PATH="$TC_BIN:$PATH" make -j"$(sysctl -n hw.ncpu)" ${build_version:+VERSION="$build_version"}
 }
 
 if [[ "$WHAT" == "--all" || "$WHAT" == "--firmware" ]]; then

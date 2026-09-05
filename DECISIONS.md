@@ -4261,3 +4261,46 @@ Compartirlos es seguro por lo mismo que el buffer, con **una** regla nueva y ano
 En las dos capturas (antes **y** después, o sea previo a esta ronda) se ve que en ruso la pregunta `обновить библиотеку сейчас?` ocupa sus dos líneas y el detalle, que arranca en una `CONFIRM_DETAIL_Y` fija, se le encima. No lo toco en esta entrada: es una decisión de maquetación que afecta a los seis idiomas, no un efecto del dibujo por tramos. Queda anotado para que se decida aparte.
 
 **Archivos**: `metro_draw.c`, `test/test_textseg.c`. Ninguno de Rockbox fuera de `apps/metro/`.
+
+## M-119 — El bootloader cambiaba de hash en cada release sin haberlo tocado
+
+Detectado por Aura Studio al pinear v0.7.1: `bootloader-ipod6g.ipod` cambió de SHA-256 entre v0.7.0 (`03b2f6fc…`) y v0.7.1 (`a1f47beb…`) **sin un solo cambio en `bootloader/` ni en sus bitmaps**.
+
+### La causa
+
+`package_dist.sh` pasa `VERSION=<hash de commit>-<fecha>` a `build_target.sh`, que lo pasaba a **los dos** builds. La pantalla de arranque de M-107 (`bootloader/ipod-s5l87xx.c:147`) imprime esa cadena:
+
+```c
+snprintf(buf, sizeof(buf), "metro \xc2\xb7 arranque %s", rbversion);
+```
+
+Así que cada commit producía un bootloader distinto. Studio compara el SHA-256 del asset para decidir si ofrece "Actualizar el arranque" (ST-143): eso era **un DFU innecesario en cada actualización de firmware**, y el DFU es justo la operación que más caro sale equivocar.
+
+Lo irónico es que el comentario de M-107, dos líneas más arriba, ya decía lo correcto -- *"La version es la del BOOTLOADER: es lo unico que el conoce"* -- pero `rbversion` no era la del bootloader, era la del commit.
+
+### Por qué NO se copia lo de Aura-Firmware
+
+La sesión supervisora señaló que el bootloader de Aura no cambió entre v0.4.5 y v0.4.6, y sugirió comparar. Comparado (`../Aura-Firmware/firmware/tools/package_dist.sh`, sólo lectura): **Aura ni siquiera lo reconstruye.** Su `package_dist.sh` requiere un paso manual (`cp bootloader.ipod ../dist/`) y avisa si el archivo no está. Su hash estable es un efecto secundario de no recompilar, no un diseño reproducible. Este repo lo compila en cada empaquetado a propósito (está anotado como mejora en la cabecera de su `package_dist.sh`), así que la solución tiene que venir de otro lado: quitarle al binario la dependencia de la versión del firmware, no dejar de construirlo.
+
+### La corrección
+
+`firmware/BOOT_VERSION` (fuera del árbol de Rockbox, archivo propio de este repo) con un entero, hoy `1`. `build_target.sh` usa su contenido como `VERSION` **sólo** para el build de tipo `B`; el firmware sigue recibiendo la del commit, como debe. Se sube **a mano** cuando se toca el bootloader -- que es exactamente cuando el usuario sí tiene que reflashear.
+
+La pantalla de arranque pasa a leer `metro · arranque 1`.
+
+### Verificado
+
+Dos compilaciones **limpias** (`rm -rf firmware/build-ipod6g-boot`) con cadenas de versión deliberadamente opuestas:
+
+| `VERSION` pasado | SHA-256 del bootloader |
+|---|---|
+| `commitAAA-260904` | `647fd51e35405727f347beec61378fa0af036ab50b7af2960b8f938ee8f06ef3` |
+| `commitZZZ-991231` | `647fd51e35405727f347beec61378fa0af036ab50b7af2960b8f938ee8f06ef3` |
+
+Idénticos: el binario ya no depende del commit. Y la palanca nueva sí es una palanca -- con `BOOT_VERSION=2`, mismo `VERSION`, el hash cambia a `5f1f4fae…`. Devuelto a `1`.
+
+`rbversion` sigue apareciendo en el `printf("Version: %s", rbversion)` de la ruta de depuración del propio Rockbox (misma unidad de compilación); ahora imprime la del bootloader, que es la coherente ahí también.
+
+**Archivos**: `firmware/BOOT_VERSION` (nuevo), `firmware/tools/build_target.sh`. **Ningún archivo bajo `firmware/rockbox/`**, así que no hay entrada nueva en `MODIFICATIONS.md` -- la de M-107 por `bootloader/ipod-s5l87xx.c` ya estaba y no cambia.
+
+**Pendiente para la lista de verificación en hardware**: leer la leyenda de la pantalla de arranque en el iPod real y confirmar que dice `metro · arranque 1`. El simulador no arranca el bootloader.
