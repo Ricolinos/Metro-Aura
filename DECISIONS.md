@@ -4416,7 +4416,7 @@ Build de destino y simulador con 0 errores; `stack_report` OK (peor camino 4872 
 
 **Sin release**: se agrupa con M-117…M-121 en `v0.7.3`, a la confirmación del dueño.
 
-### Cierre de M-117 … M-122 (preparado para `v0.7.3`)
+### Cierre de M-117 … M-123 (M-117…M-122 publicados en `v0.7.3`; M-123 preparado para `v0.7.4`)
 
 Lista viva de verificación en hardware. Sustituye a la del cierre de "ajustes 2"
 en cuanto a qué sigue abierto; los dos ítems de allá siguen vigentes y se
@@ -4427,9 +4427,12 @@ repiten aquí para no tener que leer dos listas.
 - [ ] **M-119 (leyenda del arranque)**: que la pantalla del bootloader diga `metro · arranque 1`. El simulador no arranca el bootloader.
 - [ ] **M-122 (coste del decode directo)**: cronometrar en el iPod real el decode del fondo de Ahora Suena desde una foto de artista de 320×320. El `DEBUGF` permanente ya imprime los ticks, así que no hace falta recompilar nada: basta cambiar de artista y leer el log. Los 60 ms medidos son de un Mac; el ARM del 6G costará más, y el camino directo **no tiene caché en disco** (alternar entre dos artistas paga el decode cada vez, a diferencia del camino de la maestra, que se amortiza tras el primero).
 
+- [ ] **M-123 (tramo determinado de la barra)**: que la barra y el porcentaje se dibujen bien durante el commit (78–100 %) y durante las fases de carátulas y fotos de artista. En el simulador esas fases duran **menos que un repintado** con la biblioteca de prueba, así que la captura sale por azar; en el aparato, con la fase de base de datos durando minutos, se ven solas.
+- [ ] **M-123 (ícono de segundo plano)**: pulsar MENU con la actualización en curso y confirmar que el ícono aparece en la barra de estado y desaparece al terminar. El arnés inyecta todas las pulsaciones antes de que la pantalla exista y no permite retrasar una, así que sólo se verificó el DIBUJO del ícono (con el predicado forzado), no que el estado se alcance.
+
 **Salida documentada si M-122 pasara de ~150 ms en el aparato** (acordada con la supervisora, **no** se implementa ahora): cachear el fondo ya derivado bajo `/.aura/art` como una maestra de 320 **sólo para artistas**. Eso es un **cambio de contrato** -- hoy la maestra de artistas es de 130 px y la comparten las tres familias, así que subirla o añadir una segunda resolución se decide en el contrato, no aquí. Se anota como plan B con su condición de disparo para que, si el número sale mal, no haya que rediseñar desde cero con el aparato en la mano.
 
-**Estado de release**: `v0.7.3` empaquetable desde `main` (M-117…M-122), sin tag y sin publicar. Queda a la confirmación directa del dueño; este repo no publica nada por su cuenta.
+**Estado de release**: `v0.7.3` **publicado** el 2026-09-05 (M-117…M-122), con autorización directa del dueño. `v0.7.4` empaquetable desde `main` (M-123), sin tag y sin publicar, a la espera de esa misma confirmación; este repo no publica nada por su cuenta.
 
 ## M-123 — La pantalla de espera decía "actualizando biblioteca" y nada más
 
