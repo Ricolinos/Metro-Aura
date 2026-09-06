@@ -4462,6 +4462,28 @@ Dos decisiones que vienen de ahí y que importan más que la barra:
 1. **La cifra y la barra se desacoplan.** El detalle no repite el porcentaje (una estimación que se queda quieta a ratos) sino `processed_entries`, el conteo real de entradas ya vistas. En una fase de cuatro minutos es lo único que distingue "va lento" de "se colgó" -- y se ve en `m123-sync-db-contador.png`, con el contador en 537 mientras la barra todavía no puede estimar nada.
 2. **`progress` negativo es "no se sabe", no "cero".** Devolver 0 % afirmaría algo falso; se devuelve -1 y el carril queda sin relleno, con el contador moviéndose al lado.
 
+### Addendum: por qué el escaneo no lleva denominador
+
+Observación de moonlit sobre el "28/27" de abajo, que corrige el diagnóstico:
+`processed_entries` y `total_entries` **no son comparables**. El primero cuenta
+las entradas escaneadas en ESTA pasada; el segundo, las que ya tiene la base
+existente. Toparlo -- que es lo que hice al verlo -- quita el número imposible
+pero deja el resto mintiendo: una fracción entre dos cosas distintas no
+significa nada, y con la base vacía el denominador es 0 de todas formas.
+
+Lo honesto durante el escaneo es **no enseñar denominador**: "N archivos" a
+secas. Es lo que ya quedó al portar el reparto de Aura (D-344) unas horas
+antes, porque ese porte retiró `total_entries` del todo: `LANG_SYNC_DB_SCAN`
+es `"%d"` y el único `"%d/%d"` es el del commit, cuyo denominador
+(`tagcache_get_max_commit_step()`) sí es una cuenta real del mismo trabajo.
+Verificado de nuevo tras el aviso: no queda ninguna comparación entre esos dos
+campos en el código, sólo la mención en el comentario que explica el error.
+
+Se anota igual, y no como "ya estaba", porque el rediseño lo arregló **de
+rebote**: la razón por la que se retiró `total_entries` fue que valía 0 durante
+el escaneo, no que fuera incomparable. Las dos razones llevan al mismo sitio,
+pero sólo la segunda explica por qué toparlo no habría bastado.
+
 ### Detalles que costaron una vuelta cada uno
 
 - **"28/27".** `processed_entries` se pasa de `total_entries` -- tagcache sigue contando la entrada que confirma. El porcentaje ya estaba topado; el conteo no. (Se arregló antes de que el rediseño de arriba retirara ese denominador, pero la lección vale para cualquier cifra que venga de `stat`.)
