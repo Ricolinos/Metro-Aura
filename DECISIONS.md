@@ -4430,3 +4430,56 @@ repiten aquí para no tener que leer dos listas.
 **Salida documentada si M-122 pasara de ~150 ms en el aparato** (acordada con la supervisora, **no** se implementa ahora): cachear el fondo ya derivado bajo `/.aura/art` como una maestra de 320 **sólo para artistas**. Eso es un **cambio de contrato** -- hoy la maestra de artistas es de 130 px y la comparten las tres familias, así que subirla o añadir una segunda resolución se decide en el contrato, no aquí. Se anota como plan B con su condición de disparo para que, si el número sale mal, no haya que rediseñar desde cero con el aparato en la mano.
 
 **Estado de release**: `v0.7.3` empaquetable desde `main` (M-117…M-122), sin tag y sin publicar. Queda a la confirmación directa del dueño; este repo no publica nada por su cuenta.
+
+## M-123 — La pantalla de espera decía "actualizando biblioteca" y nada más
+
+Encargo del dueño para v0.7.4, con complementos relevados de moonlit (D-084, `994b9ac9` y `d1790192`) y de Aura (D-344, `aura_sync.c`), los tres leídos sólo como referencia.
+
+### El error
+
+`draw_sync_screen()` dibujaba un título y, si el constructor de maestras estaba activo, una línea de conteo. Nada más: ni en qué fase iba, ni cuánto faltaba, ni barra. Una biblioteca grande se veía **exactamente igual que una colgada**.
+
+### Lo que se añade
+
+Fases nombradas (base de datos → carátulas → fotos de artista → imágenes), barra con porcentaje cuando la fase publica una cifra, carril con bloque cuando no, y la pista de que MENU deja el trabajo en segundo plano. `METRO_ICON_SYNC` existía desde M-018 y **no se dibujaba en ningún sitio**: ahora aparece en la barra de estado mientras el trabajo sigue pospuesto, que es lo que respalda esa promesa desde las demás pantallas.
+
+El predicado del ícono es `state == METRO_SYNC_POSTPONED`, **no** `metro_sync_job_active()`: ese también es cierto mientras la pantalla de progreso está a la vista, donde el ícono no diría nada que la pantalla entera no esté diciendo ya. De paso excluye los estados de error, que es el aviso que mandó moonlit.
+
+### La fase de base de datos: el primer intento estaba mal
+
+Lo escribí con `stat->total_entries` como denominador. **La barra se queda clavada en 0 toda la fase**: ese campo vale 0 mientras tagcache recorre el disco por primera vez, que es justo la parte larga -- unos cuatro minutos en el iPod del dueño, según el aviso que llegó a media implementación. Se rehízo copiando el reparto de Aura (D-344), que moonlit también portó:
+
+- **escaneo** → `stat->progress`, un porcentaje **estimado**, en el tramo 0..200 de 256 (0–78 %);
+- **indexado/commit** → `commit_step` sobre `tagcache_get_max_commit_step()`, cuenta exacta, tramo 200..256 (78–100 %).
+
+Los dos campos son de Rockbox de fábrica: **no se toca el core y no hay entrada nueva en `MODIFICATIONS.md`**.
+
+Dos decisiones que vienen de ahí y que importan más que la barra:
+
+1. **La cifra y la barra se desacoplan.** El detalle no repite el porcentaje (una estimación que se queda quieta a ratos) sino `processed_entries`, el conteo real de entradas ya vistas. En una fase de cuatro minutos es lo único que distingue "va lento" de "se colgó" -- y se ve en `m123-sync-db-contador.png`, con el contador en 537 mientras la barra todavía no puede estimar nada.
+2. **`progress` negativo es "no se sabe", no "cero".** Devolver 0 % afirmaría algo falso; se devuelve -1 y el carril queda sin relleno, con el contador moviéndose al lado.
+
+### Detalles que costaron una vuelta cada uno
+
+- **"28/27".** `processed_entries` se pasa de `total_entries` -- tagcache sigue contando la entrada que confirma. El porcentaje ya estaba topado; el conteo no. (Se arregló antes de que el rediseño de arriba retirara ese denominador, pero la lección vale para cualquier cifra que venga de `stat`.)
+- **Las cadenas con `%d` dentro** se arman siempre con `snprintf` sobre la cadena del catálogo. Dibujar la cruda enseñaría el `%d` al usuario, que es lo que le pasó a moonlit.
+- **El repintado es por VUELTA del bucle**, no por elemento ni atado a `metro_sync_tick()`: el avance de tagcache no pasa por tick, lo publica el propio tagcache en su `stat`, así que atarse a tick dejaba la cifra congelada. El ritmo lo pone la espera de `metro_input_next()` (HZ/10), no cuántas carátulas se hayan preparado entre dos cuadros -- que es justo lo que evita competir con el constructor.
+- El carril animado respeta `lcd_active()` y el nivel de animación. Con `animations=off` el bloque **se queda quieto a la izquierda** en vez de desaparecer: un carril vacío diría que no pasa nada, y sí está pasando.
+
+### Verificado, y lo que NO
+
+- `m123-sync-db-inicio.png` -- contador en 0, sin estimación todavía: carril sin relleno, no un 0 % falso.
+- `m123-sync-db-contador.png` -- contador en 537 avanzando mientras la barra sigue sin poder estimar. Este es el caso que motivó el encargo.
+- `m123-icono-segundo-plano.png` -- el ícono en la barra de estado, a la izquierda del reloj, sin chocar con reloj ni batería. **Capturada con el predicado forzado a verdadero**, no en una corrida real: verifica el DIBUJO, no que el estado se alcance.
+
+**No capturado, y no lo voy a presentar como si lo estuviera**: el tramo determinado (commit 78–100 % y las fases de carátulas/artistas con su porcentaje) con el build final. Con la biblioteca de prueba esas fases duran **menos que un repintado**; instrumentando el bucle se las ve pasar (`preparing album art 13/14` en el log, una vez de cada seis corridas), pero una captura sale por azar. Tampoco se pudo capturar el ícono en una corrida real: el arnés inyecta todas las pulsaciones de golpe, antes de que la pantalla exista, y no ofrece forma de retrasar una.
+
+Las dos cosas son triviales de comprobar en el aparato, donde la fase dura minutos. Van a la lista de hardware.
+
+### Verificado (lo demás)
+
+Build de destino y simulador con 0 errores, `stack_report` OK (4872 B, 39.6 %), cobertura de glifos verde en los seis idiomas, suite host en verde. Tres cadenas nuevas en los seis idiomas.
+
+**Archivos**: `metro_main.c` (la pantalla), `metro_draw.c` (ícono en la barra), `metro_lang.c/.h`. Ninguno de Rockbox fuera de `apps/metro/`.
+
+**Sin release**: `v0.7.4` la autoriza el dueño.

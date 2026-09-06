@@ -30,6 +30,7 @@
 #include "misc.h"
 #include "settings.h"
 #include "statusbar.h"
+#include "backlight.h" /* lcd_active() -- M-123: puerta del carril animado */
 
 #include "metro_main.h"
 #include "metro_screen_splash.h"
@@ -139,13 +140,135 @@ static void redraw_viewer_settled(void)
         redraw_current();
 }
 
+/* M-123: geometria de la pantalla de espera. Un solo bloque: titulo,
+ * fase, barra, y la pista de MENU abajo (donde ya vivia la de descartar
+ * un error). */
+#define SYNC_TITLE_Y   84
+#define SYNC_PHASE_Y   124
+#define SYNC_BAR_Y     152
+#define SYNC_BAR_H     4
+#define SYNC_PCT_Y     162
+#define SYNC_HINT_Y    206
+#define SYNC_MARGIN_X  12
+#define SYNC_BAR_W     (LCD_WIDTH - 2 * SYNC_MARGIN_X)
+
+/* M-123: carril sin relleno determinado -- se usa cuando la fase corre
+ * pero todavia no publica ninguna cifra.
+ *
+ * El bloque se MUEVE solo bajo las dos puertas de siempre:
+ * `lcd_active()` y el nivel de animacion. Con la pantalla dormida el
+ * trabajo sigue igual, asi que animar seria gastar cuadros que nadie
+ * ve; con animations=off el bloque se queda quieto a la izquierda en
+ * vez de desaparecer, porque un carril vacio diria que no pasa nada y
+ * si esta pasando. */
+#define SYNC_IND_W (SYNC_BAR_W / 4)
+
+static void draw_indeterminate_bar(void)
+{
+    int x = SYNC_MARGIN_X;
+
+    lcd_set_foreground(metro_color_tertiary());
+    lcd_fillrect(SYNC_MARGIN_X, SYNC_BAR_Y, SYNC_BAR_W, SYNC_BAR_H);
+
+    if (lcd_active() && metro_settings.animations != METRO_ANIM_OFF)
+    {
+        int span = SYNC_BAR_W - SYNC_IND_W;
+        int period = 2 * span; /* ida y vuelta, sin flotantes */
+        int t = span > 0 ? (int)((current_tick * 2) % period) : 0;
+
+        x += (t < span) ? t : (period - t);
+    }
+
+    lcd_set_foreground(metro_color_accent());
+    lcd_fillrect(x, SYNC_BAR_Y, SYNC_IND_W, SYNC_BAR_H);
+}
+
+/* M-123: la fase de base de datos, en DOS TRAMOS -- porte del D-344 de
+ * Aura (`aura_sync.c`, leido solo como referencia), traido tras el aviso
+ * de que en el iPod del dueno esta fase dura unos cuatro minutos.
+ *
+ * El primer intento aqui usaba `total_entries` como denominador y la
+ * barra se quedaba clavada en 0 toda la fase: ese campo vale 0 mientras
+ * tagcache recorre el disco por primera vez, que es justo la parte
+ * larga. Lo que si avanza son otras dos cosas, de naturaleza distinta:
+ *
+ *   - ESCANEO: `stat->progress`, un porcentaje ESTIMADO (0 al principio
+ *     y con la cache de directorios fria). Se le da el primer tramo,
+ *     0..200 de 256.
+ *   - INDEXADO (commit): `commit_step` sobre
+ *     `tagcache_get_max_commit_step()`, que si es una cuenta exacta.
+ *     Segundo tramo, 200..256.
+ *
+ * La escala 0..256 es la de Aura y se conserva para que los dos
+ * firmwares repartan el recorrido igual; aqui se convierte a porcentaje
+ * al dibujar.
+ *
+ * El DETALLE no repite el porcentaje del escaneo, que es una estimacion
+ * y se queda quieta a ratos, sino el conteo real de entradas ya vistas
+ * -- un numero que avanza a ojo aunque la barra no se mueva. En una
+ * fase de cuatro minutos es lo unico que distingue "va lento" de "se
+ * colgo".
+ *
+ * Devuelve el avance en 0..256, o -1 si todavia no hay nada que decir. */
+#define SYNC_DB_SCAN_SPAN 200
+#define SYNC_DB_FULL_SPAN 256
+
+static int sync_db_progress_256(char *detail, size_t detail_len)
+{
+    struct tagcache_stat *st = tagcache_get_stat();
+    int max_step, pct;
+
+    if (detail && detail_len)
+        detail[0] = '\0';
+    if (!st)
+        return -1;
+
+    max_step = tagcache_get_max_commit_step();
+    if (st->commit_step > 0 && max_step > 0)
+    {
+        if (detail && detail_len)
+            snprintf(detail, detail_len, metro_lang_str(LANG_SYNC_DB_INDEX),
+                     st->commit_step, max_step);
+        return SYNC_DB_SCAN_SPAN
+             + ((SYNC_DB_FULL_SPAN - SYNC_DB_SCAN_SPAN) * st->commit_step) / max_step;
+    }
+
+    /* El conteo se rellena SIEMPRE, aunque no haya barra que dibujar:
+     * son dos cosas distintas y se desacoplan a proposito (el
+     * porcentaje es la estimacion de tagcache; el contador, archivos
+     * ya procesados de verdad). */
+    pct = st->progress;
+    if (detail && detail_len)
+        snprintf(detail, detail_len, metro_lang_str(LANG_SYNC_DB_SCAN),
+                 st->processed_entries);
+
+    /* `progress` NEGATIVO es "no se sabe", no "cero": tagcache lo usa
+     * cuando todavia no puede estimar. Se devuelve -1 para que el
+     * llamador deje el carril sin relleno en vez de dibujar un 0 % que
+     * afirma algo falso -- el contador de arriba sigue moviendose y es
+     * el que dice que hay vida. */
+    if (pct < 0)
+        return -1;
+    if (pct > 100) pct = 100;
+    if (pct == 0 && st->processed_entries == 0)
+        return -1;
+    return (SYNC_DB_SCAN_SPAN * pct) / 100;
+}
+
 /* F6: the one full-screen wait state in Metro (PLAN_MAESTRO.md S4.3) --
  * drawn straight from metro_main.c, not a metro_screen_* module, same
  * as the plan's own file list for this phase (no new screen file).
  * MENU postpones a running job (metro_sync_postpone(), the job keeps
  * going in the background) or dismisses an error (metro_sync_dismiss()) --
  * either way the loop below exits as soon as metro_sync_needs_screen()
- * goes false. */
+ * goes false.
+ *
+ * M-123: hasta aqui la pantalla decia "actualizando biblioteca..." y
+ * nada mas -- ni en que fase iba ni cuanto faltaba, asi que una
+ * biblioteca grande se veia igual que una colgada. Ahora nombra la fase
+ * (base de datos -> caratulas -> fotos de artista -> imagenes), dibuja
+ * una barra determinada con su cifra y su porcentaje cuando la fase
+ * publica una, y el carril con el bloque cuando todavia no. */
 static void draw_sync_screen(void)
 {
     enum metro_lang_id msg = LANG_MUSIC_DB_UPDATING;
@@ -167,36 +290,90 @@ static void draw_sync_screen(void)
 
     metro_draw_clear();
     metro_draw_header("");
-    metro_draw_text(MFONT_TITLE, 12, 100, metro_lang_str(msg), metro_color_fg());
+    metro_draw_text_cut_right(MFONT_TITLE, SYNC_MARGIN_X, SYNC_TITLE_Y,
+                              metro_lang_str(msg), metro_color_fg(),
+                              LCD_WIDTH - 2 * SYNC_MARGIN_X);
     if (is_error)
-        metro_draw_text(MFONT_CAPTION, 12, 140, metro_lang_str(LANG_SYNC_DISMISS_HINT),
+    {
+        metro_draw_text(MFONT_CAPTION, SYNC_MARGIN_X, SYNC_HINT_Y,
+                         metro_lang_str(LANG_SYNC_DISMISS_HINT),
                          metro_color_secondary());
-    else
+        lcd_update();
+        return;
+    }
+
     {
         /* M-100: the image phase shares this screen -- it is part of
          * "preparing the library", not a second wait state (S4.3 says
          * there is exactly one). */
         metro_master_art_phase_t phase = METRO_MASTER_ART_PHASE_IDLE;
         int done = 0, total = 0;
+        int pct = -1;
+        char line[64];
 
+        /* M-123: la linea de fase SIEMPRE se arma con snprintf sobre la
+         * cadena del catalogo. Ninguna de estas lleva su cifra ya
+         * puesta, asi que dibujar la cadena cruda enseñaria el "%d" al
+         * usuario -- que es exactamente lo que le paso a moonlit. */
         if (metro_sync_art_progress(&phase, &done, &total))
         {
-            char line[48];
-            enum metro_lang_id fmt;
-
             if (phase == METRO_MASTER_ART_PHASE_PHOTOS)
-                fmt = LANG_SYNC_ART_PHOTOS;
-            else if (phase == METRO_MASTER_ART_PHASE_ARTISTS)
-                fmt = LANG_SYNC_ART_ARTISTS;
+            {
+                /* Recorrido en flujo: hay conteo, no hay total. */
+                snprintf(line, sizeof(line),
+                         metro_lang_str(LANG_SYNC_ART_PHOTOS), done);
+            }
             else
-                fmt = LANG_SYNC_ART_ALBUMS;
-
-            if (phase == METRO_MASTER_ART_PHASE_PHOTOS)
-                snprintf(line, sizeof(line), metro_lang_str(fmt), done);
-            else
-                snprintf(line, sizeof(line), metro_lang_str(fmt), done, total);
-            metro_draw_text(MFONT_CAPTION, 12, 140, line, metro_color_secondary());
+            {
+                snprintf(line, sizeof(line),
+                         metro_lang_str(phase == METRO_MASTER_ART_PHASE_ARTISTS
+                                          ? LANG_SYNC_ART_ARTISTS
+                                          : LANG_SYNC_ART_ALBUMS),
+                         done, total);
+                if (total > 0)
+                {
+                    pct = (int)(((long)done * 100) / total);
+                    if (pct > 100) pct = 100;
+                }
+            }
         }
+        else
+        {
+            int p256 = sync_db_progress_256(line, sizeof(line));
+
+            if (!line[0])
+                snprintf(line, sizeof(line), "%s",
+                         metro_lang_str(LANG_SYNC_DB_BUSY));
+            if (p256 >= 0)
+                pct = (p256 * 100) / SYNC_DB_FULL_SPAN;
+        }
+
+        metro_draw_text_cut_right(MFONT_CAPTION, SYNC_MARGIN_X, SYNC_PHASE_Y,
+                                  line, metro_color_secondary(),
+                                  LCD_WIDTH - 2 * SYNC_MARGIN_X);
+
+        if (pct >= 0)
+        {
+            char pctbuf[8];
+            int w;
+
+            if (pct < 0) pct = 0;
+            if (pct > 100) pct = 100;
+            metro_draw_progress(SYNC_MARGIN_X, SYNC_BAR_Y, SYNC_BAR_W,
+                                 SYNC_BAR_H, pct);
+            snprintf(pctbuf, sizeof(pctbuf), "%d%%", pct);
+            metro_draw_text_size(MFONT_CAPTION, pctbuf, &w, NULL);
+            metro_draw_text(MFONT_CAPTION, LCD_WIDTH - SYNC_MARGIN_X - w,
+                             SYNC_PCT_Y, pctbuf, metro_color_secondary());
+        }
+        else
+        {
+            draw_indeterminate_bar();
+        }
+
+        metro_draw_text(MFONT_CAPTION, SYNC_MARGIN_X, SYNC_HINT_Y,
+                         metro_lang_str(LANG_SYNC_POSTPONE_HINT),
+                         metro_color_secondary());
     }
     lcd_update();
 }
@@ -247,8 +424,18 @@ void metro_run_sync_screen_if_needed(void)
             continue;
         }
 
-        if (metro_sync_tick())
-            draw_sync_screen();
+        /* M-123: se repinta en CADA vuelta del bucle (HZ/10, unas diez
+         * veces por segundo), no solo cuando metro_sync_tick() dice que
+         * algo cambio. El avance de tagcache no pasa por tick -- lo
+         * publica el propio tagcache en su `stat` -- asi que atarse a
+         * tick dejaba la cifra congelada toda la fase.
+         *
+         * Repintar por VUELTA y no por ELEMENTO es lo que evita competir
+         * con el constructor de maestras: el ritmo lo pone la espera de
+         * metro_input_next(), no cuantas caratulas se hayan preparado
+         * entre dos cuadros. */
+        metro_sync_tick();
+        draw_sync_screen();
     }
 }
 

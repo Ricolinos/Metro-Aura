@@ -31,6 +31,7 @@
 #include "metro_theme.h"
 #include "metro_lang.h"
 #include "metro_marquee.h" /* M-106 */
+#include "metro_sync.h"    /* M-123: metro_sync_state() -- icono de la barra */
 #include "metro_textseg.h" /* M-114: dibujo por tramos (cirilico, ver DECISIONS.md) */
 
 #define METRO_HEADER_HEIGHT 24
@@ -372,7 +373,29 @@ void metro_draw_header(const char *page_title)
      * sondeo el icono aparecia solo la proxima vez que algo mas
      * provocara un redibujo. */
     if (button_hold())
+    {
         metro_widgets_draw_icon(METRO_ICON_LOCK, transport_x,
+                                METRO_HEADER_ICON_Y, metro_color_secondary());
+        transport_x -= 6 + METRO_ICON_SIZE;
+    }
+
+    /* M-123: la actualizacion de la biblioteca sigue corriendo despues
+     * de que el usuario aparta su pantalla con MENU
+     * (metro_sync_postpone()). Sin esta senal, "sigue en segundo
+     * plano" era una promesa que la interfaz no respaldaba en ningun
+     * lado: el aparato se sentia mas lento y nada decia por que.
+     *
+     * En secundario y no en acento, por el mismo criterio que el
+     * candado de M-104: es un estado que se consulta, no algo que
+     * reclame atencion. El acento de esta barra sigue reservado para
+     * "pausa".
+     *
+     * Se mira POSTPONED y no metro_sync_job_active(): ese tambien es
+     * cierto mientras la pantalla de progreso esta a la vista, y ahi el
+     * icono no diria nada que la pantalla entera no este diciendo ya.
+     * El icono existe para las OTRAS pantallas. */
+    if (metro_sync_state() == METRO_SYNC_POSTPONED)
+        metro_widgets_draw_icon(METRO_ICON_SYNC, transport_x,
                                 METRO_HEADER_ICON_Y, metro_color_secondary());
 
     metro_draw_battery(LCD_WIDTH - 4, METRO_HEADER_BATTERY_Y);

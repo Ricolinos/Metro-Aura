@@ -113,6 +113,15 @@ enum metro_lang_id {
     LANG_SYNC_ART_ALBUMS,       /* "preparando carátulas %d/%d" */
     LANG_SYNC_ART_ARTISTS,      /* "preparando fotos de artistas %d/%d" */
     LANG_SYNC_ART_PHOTOS,       /* "preparando imágenes %d" */
+    /* M-123: la fase de base de datos, que hasta ahora no se nombraba
+     * -- la pantalla solo decía "actualizando biblioteca" y el usuario
+     * no sabía en qué iba. La variante _BUSY existe porque tagcache no
+     * siempre publica un total: mientras recorre el disco por primera
+     * vez `total_entries` es 0 y no hay porcentaje que enseñar. */
+    LANG_SYNC_DB_SCAN,          /* "leyendo la música %d" -- carpetas ya vistas */
+    LANG_SYNC_DB_INDEX,         /* "indexando %d/%d" -- paso de commit */
+    LANG_SYNC_DB_BUSY,          /* "leyendo la música" -- todavía sin cifra */
+    LANG_SYNC_POSTPONE_HINT,    /* "menú para seguir en segundo plano" */
 
     LANG_SETTING_LIBRARY,
     LANG_SETTING_BRIGHTNESS,
