@@ -1,3 +1,10 @@
+# Instrucciones y herramientas locales para asistentes de codigo (Claude Code
+# u otros). Viven solo en la maquina de cada quien; el repositorio es solo el
+# codigo del proyecto.
+CLAUDE.md
+.claude/
+.serena/
+
 # Builds (regenerables con firmware/tools/build_*.sh)
 firmware/build-sim/
 firmware/build-ipod6g/
